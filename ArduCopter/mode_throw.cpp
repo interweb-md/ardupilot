@@ -63,18 +63,19 @@ void ModeThrow::run()
 
         // Cancel the waiting for throw tone sequence
         AP_Notify::flags.waiting_for_throw = false;
+        stage = Throw_Servo;
+        servo_trigger_start_ms = AP_HAL::millis();
+        servo_triggered = false;
+
+    } else if (stage == Throw_Servo && servo_triggered && 
+               (AP_HAL::millis() - servo_trigger_start_ms) >= g2.throw_servo_delay_ms.get()) {
+        gcs().send_text(MAV_SEVERITY_INFO,"servo delay expired - uprighting");
+        stage = Throw_Wait_Throttle_Unlimited;
 
     } else if (stage == Throw_Wait_Throttle_Unlimited &&
                motors->get_spool_state() == AP_Motors::SpoolState::THROTTLE_UNLIMITED) {
         gcs().send_text(MAV_SEVERITY_INFO,"throttle is unlimited - deploying servo");
-        stage = Throw_Servo;
-        servo_trigger_start_ms = AP_HAL::millis();
-        servo_triggered = false;
-    
-    } else if (stage == Throw_Servo && servo_triggered && 
-               (AP_HAL::millis() - servo_trigger_start_ms) >= g2.throw_servo_delay_ms.get()) {
-        gcs().send_text(MAV_SEVERITY_INFO,"servo delay expired - uprighting");
-        stage = Throw_Uprighting;
+                stage = Throw_Uprighting;
  
     } else if (stage == Throw_Uprighting && throw_attitude_good()) {
         gcs().send_text(MAV_SEVERITY_INFO,"uprighted - controlling height");
@@ -159,13 +160,7 @@ void ModeThrow::run()
 
         break;
 
-    case Throw_Wait_Throttle_Unlimited:
-
-        // set motors to full range
-        motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
-
-        break;
-    // NEW: Throw_Servo stage - deploy servo and maintain level attitude
+        // NEW: Throw_Servo stage - deploy servo and maintain level attitude
     case Throw_Servo:
 
         // set motors to full range
@@ -176,6 +171,13 @@ void ModeThrow::run()
             trigger_payload_servo();
             servo_triggered = true;
         }
+
+        break;
+
+    case Throw_Wait_Throttle_Unlimited:
+
+        // set motors to full range
+        motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
 
         break;
     case Throw_Uprighting:
@@ -277,19 +279,18 @@ void ModeThrow::run()
 #endif  // HAL_LOGGING_ENABLED
 }
 // NEW: Helper function to trigger servo deployment
-void ModeThrow::trigger_payload_servo()
+void ModeThrow::trigger_deploy_servo()
 {
         // Check if throw servo is assigned to a channel
     if (!SRV_Channels::function_assigned(SRV_Channel::k_throw_servo)) {
         return;  // Servo not configured
     }
   
-    // Or set output directly:
-        SRV_Channels::set_output_pwm_chan(SRV_Channel::k_throw_servo, g2.throw_servo_idle_pos);  // retract
+    SRV_Channels::set_output_pwm_chan(SRV_Channel::k_throw_servo, g2.throw_servo_idle_pos);  // deploy
     gcs().send_text(MAV_SEVERITY_INFO, "Throw: Servo deployed");
 }
 
-void ModeThrow::retract_payload()
+void ModeThrow::retract_deploy_servo()
 {
     if (SRV_Channels::function_assigned(SRV_Channel::k_throw_servo)) {
         SRV_Channels::set_output_pwm_chan(SRV_Channel::k_throw_servo, g2.throw_servo_deploy_pos);  // retract
