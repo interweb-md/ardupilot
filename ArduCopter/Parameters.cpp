@@ -562,6 +562,7 @@ const AP_Param::Info Copter::var_info[] = {
     // @Units: m
     // @User: Advanced
     GSCALAR(throw_altitude_ascend, "THROW_ALT_ACSND", 3.0),
+
 #endif
 
 #if OSD_ENABLED || OSD_PARAM_ENABLED
@@ -626,6 +627,22 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @Values: 0:Upward Throw,1:Drop
     // @User: Standard
     AP_GROUPINFO("THROW_TYPE", 4, ParametersG2, throw_type, (float)ModeThrow::ThrowType::Upward),
+    
+    // NEW: Servo parameters for throw mode (use next available indices)
+    // @Param: THROW_SERVO_CH
+    // @DisplayName: Throw mode servo channel
+    // @Description: Servo output channel for payload deployment during throw launch. Set to 0 to disable.
+    // @Range: 0 16
+    // @User: Standard
+    AP_GROUPINFO("THROW_SERVO_CH", 62, ParametersG2, throw_servo_channel, 0),
+
+    // @Param: THROW_SERVO_DELAY
+    // @DisplayName: Throw mode servo trigger delay
+    // @Description: Time in milliseconds to hold servo deployment before transitioning to uprighting
+    // @Range: 0 5000
+    // @Units: ms
+    // @User: Standard
+    AP_GROUPINFO("THROW_SERVO_DELAY", 63, ParametersG2, throw_servo_delay_ms, 100),
 #endif
 
     // @Param: GND_EFFECT_COMP

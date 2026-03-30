@@ -18,6 +18,8 @@ bool ModeThrow::init(bool ignore_checks)
     // init state
     stage = Throw_Disarmed;
     nextmode_attempted = false;
+    servo_triggered = false;  // NEW
+    servo_trigger_start_ms = 0;  // NEW
 
     // initialise pos controller speed and acceleration
     pos_control->NE_set_max_speed_accel_m(wp_nav->get_default_speed_NE_ms(), BRAKE_MODE_DECEL_RATE_MSS);
@@ -60,8 +62,16 @@ void ModeThrow::run()
 
     } else if (stage == Throw_Wait_Throttle_Unlimited &&
                motors->get_spool_state() == AP_Motors::SpoolState::THROTTLE_UNLIMITED) {
-        gcs().send_text(MAV_SEVERITY_INFO,"throttle is unlimited - uprighting");
+        gcs().send_text(MAV_SEVERITY_INFO,"throttle is unlimited - deploying servo");
+        stage = Throw_Servo;
+        servo_trigger_start_ms = AP_HAL::millis();
+        servo_triggered = false;
+    
+    } else if (stage == Throw_Servo && servo_triggered && 
+               (AP_HAL::millis() - servo_trigger_start_ms) >= g2.throw_servo_delay_ms.get()) {
+        gcs().send_text(MAV_SEVERITY_INFO,"servo delay expired - uprighting");
         stage = Throw_Uprighting;
+ 
     } else if (stage == Throw_Uprighting && throw_attitude_good()) {
         gcs().send_text(MAV_SEVERITY_INFO,"uprighted - controlling height");
         stage = Throw_HgtStabilise;
@@ -151,7 +161,19 @@ void ModeThrow::run()
         motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
 
         break;
+    // NEW: Throw_Servo stage - deploy servo and maintain level attitude
+    case Throw_Servo:
 
+        // set motors to full range
+        motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+
+        // Trigger servo only once upon entering this stage
+        if (!servo_triggered) {
+            trigger_payload_servo();
+            servo_triggered = true;
+        }
+
+        break;
     case Throw_Uprighting:
 
         // set motors to full range
@@ -247,6 +269,22 @@ void ModeThrow::run()
             pos_ok);
     }
 #endif  // HAL_LOGGING_ENABLED
+}
+// NEW: Helper function to trigger servo deployment
+void ModeThrow::trigger_payload_servo()
+{
+    // Check if servo channel is configured (non-zero)
+    uint8_t servo_ch = g.throw_servo_channel.get();
+    if (servo_ch == 0 || servo_ch > NUM_SERVO_CHANNELS) {
+        gcs().send_text(MAV_SEVERITY_WARNING, "Throw: Invalid servo channel configured");
+        return;
+    }
+    
+    // Set servo to maximum position (full deployment) using PWM value
+    // Using middle position (1500) as neutral, 1900 for deployed position
+    SRV_Channels::set_output_pwm_chan(servo_ch - 1, 1900);  // servo channel is 1-indexed, convert to 0-indexed
+    
+    gcs().send_text(MAV_SEVERITY_INFO, "Throw: Servo deployed on channel %d", servo_ch);
 }
 
 bool ModeThrow::throw_detected()
