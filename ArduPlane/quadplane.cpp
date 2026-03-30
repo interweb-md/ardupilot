@@ -572,6 +572,49 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
     // @Bitmask: 1: Disable thrust loss detection in transtions and fixed wing modes. Thrust loss detection will only run in VTOL modes.
     AP_GROUPINFO("THRST_LOSS_OPT", 42, QuadPlane, thrust_loss.options, 0),
 
+    // @Param: THROW_NMODE
+    // @DisplayName: Q_THROW next mode
+    // @Description: Flight mode to switch to after Q_THROW reaches a stable upright attitude. Q_THROW always first switches to QHOVER and then attempts this mode. Set to -1 to remain in QHOVER.
+    // @Range: -1 27
+    // @User: Standard
+    AP_GROUPINFO("THROW_NMODE", 43, QuadPlane, throw_next_mode, -1),
+
+    // @Param: THROW_MIN_ALT
+    // @DisplayName: Q_THROW minimum detection altitude
+    // @Description: Minimum altitude above home in meters required before Q_THROW can trigger uprighting and motor spool-up. Set to 0 to disable this altitude gate.
+    // @Units: m
+    // @Range: 0 50
+    // @Increment: 0.1
+    // @User: Standard
+    AP_GROUPINFO("THROW_MIN_ALT", 44, QuadPlane, qthrow_min_alt, 3.0f),
+
+    // @Param: THROW_SRV_DPLY
+    // @DisplayName: Q_THROW servo deploy PWM
+    // @Description: PWM sent to the THROW_SERVO output function immediately after Q_THROW detects a throw.
+    // @Units: PWM
+    // @Range: 800 2200
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("THROW_SRV_DPLY", 45, QuadPlane, qthrow_servo_deploy_pwm, 1900),
+
+    // @Param: THROW_SRV_RTRT
+    // @DisplayName: Q_THROW servo retract PWM
+    // @Description: PWM sent to the THROW_SERVO output function after Q_THROW servo deploy delay expires.
+    // @Units: PWM
+    // @Range: 800 2200
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("THROW_SRV_RTRT", 46, QuadPlane, qthrow_servo_retract_pwm, 1100),
+
+    // @Param: THROW_SRV_DLY
+    // @DisplayName: Q_THROW servo delay
+    // @Description: Time in milliseconds between sending deploy and retract PWM values for THROW_SERVO after throw detection.
+    // @Units: ms
+    // @Range: 0 5000
+    // @Increment: 10
+    // @User: Standard
+    AP_GROUPINFO("THROW_SRV_DLY", 47, QuadPlane, qthrow_servo_delay_ms, 500),
+
     AP_GROUPEND
 };
 
