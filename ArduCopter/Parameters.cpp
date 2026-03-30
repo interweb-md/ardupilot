@@ -628,13 +628,21 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("THROW_TYPE", 4, ParametersG2, throw_type, (float)ModeThrow::ThrowType::Upward),
     
-    // NEW: Servo parameters for throw mode (use next available indices)
-    // @Param: THROW_SERVO_CH
-    // @DisplayName: Throw mode servo channel
-    // @Description: Servo output channel for payload deployment during throw launch. Set to 0 to disable.
-    // @Range: 0 16
+    // @Param: THROW_SRV_IDLE_P
+    // @DisplayName: Servo position in idle state
+    // @Description: Value in ms for servo in idle (not deployed state)
+    // @Range: 1000 2000
+    // @Units: ms
     // @User: Standard
-    AP_GROUPINFO("THROW_SERVO_CH", 62, ParametersG2, throw_servo_channel, 0),
+    AP_GROUPINFO("THROW_SRV_IDLE_P", 62, ParametersG2, throw_servo_idle_pos, 1000),
+
+    // @Param: THROW_SRV_DEPL_P
+    // @DisplayName: Servo position in deployed state
+    // @Description: Value in ms for servo in deployed state
+    // @Range: 1000 2000
+    // @Units: ms
+    // @User: Standard
+    AP_GROUPINFO("THROW_SRV_DEPL_P", 63, ParametersG2, throw_servo_deploy_pos, 2000),
 
     // @Param: THROW_SERVO_DELAY
     // @DisplayName: Throw mode servo trigger delay
@@ -642,7 +650,7 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @Range: 0 5000
     // @Units: ms
     // @User: Standard
-    AP_GROUPINFO("THROW_SERVO_DELAY", 63, ParametersG2, throw_servo_delay_ms, 100),
+    AP_GROUPINFO("THROW_SERVO_DELAY", 63, ParametersG2, throw_servo_delay_ms, 500),
 #endif
 
     // @Param: GND_EFFECT_COMP

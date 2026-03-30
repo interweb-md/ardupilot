@@ -1887,6 +1887,7 @@ private:
     bool throw_height_good() const;
     bool throw_attitude_good() const;
     void trigger_payload_servo();
+    void retract_payload();
 
     // Throw stages
     enum ThrowModeStage {

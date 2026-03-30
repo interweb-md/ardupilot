@@ -29,6 +29,10 @@ bool ModeThrow::init(bool ignore_checks)
     pos_control->D_set_max_speed_accel_m(BRAKE_MODE_SPEED_Z_MS, BRAKE_MODE_SPEED_Z_MS, BRAKE_MODE_DECEL_RATE_MSS);
     pos_control->D_set_correction_speed_accel_m(BRAKE_MODE_SPEED_Z_MS, BRAKE_MODE_SPEED_Z_MS, BRAKE_MODE_DECEL_RATE_MSS);
 
+    if (SRV_Channels::function_assigned(SRV_Channel::k_throw_servo)) {
+        SRV_Channels::set_output_pwm_chan(SRV_Channel::k_throw_servo, g2.throw_servo_idle_pos);  // retract
+    }
+
     return true;
 }
 
@@ -185,6 +189,8 @@ void ModeThrow::run()
         // output 50% throttle and turn off angle boost to maximise righting moment
         attitude_control->set_throttle_out(0.5f, false, g.throttle_filt);
 
+        retract_payload();
+
         break;
 
     case Throw_HgtStabilise:
@@ -273,18 +279,21 @@ void ModeThrow::run()
 // NEW: Helper function to trigger servo deployment
 void ModeThrow::trigger_payload_servo()
 {
-    // Check if servo channel is configured (non-zero)
-    uint8_t servo_ch = g.throw_servo_channel.get();
-    if (servo_ch == 0 || servo_ch > NUM_SERVO_CHANNELS) {
-        gcs().send_text(MAV_SEVERITY_WARNING, "Throw: Invalid servo channel configured");
-        return;
+        // Check if throw servo is assigned to a channel
+    if (!SRV_Channels::function_assigned(SRV_Channel::k_throw_servo)) {
+        return;  // Servo not configured
     }
-    
-    // Set servo to maximum position (full deployment) using PWM value
-    // Using middle position (1500) as neutral, 1900 for deployed position
-    SRV_Channels::set_output_pwm_chan(servo_ch - 1, 1900);  // servo channel is 1-indexed, convert to 0-indexed
-    
-    gcs().send_text(MAV_SEVERITY_INFO, "Throw: Servo deployed on channel %d", servo_ch);
+  
+    // Or set output directly:
+        SRV_Channels::set_output_pwm_chan(SRV_Channel::k_throw_servo, g2.throw_servo_idle_pos);  // retract
+    gcs().send_text(MAV_SEVERITY_INFO, "Throw: Servo deployed");
+}
+
+void ModeThrow::retract_payload()
+{
+    if (SRV_Channels::function_assigned(SRV_Channel::k_throw_servo)) {
+        SRV_Channels::set_output_pwm_chan(SRV_Channel::k_throw_servo, g2.throw_servo_deploy_pos);  // retract
+    }
 }
 
 bool ModeThrow::throw_detected()

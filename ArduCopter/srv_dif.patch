@@ -1,0 +1,152 @@
+diff --git a/ArduCopter/mode_throw.cpp b/ArduCopter/mode_throw.cpp
+--- a/ArduCopter/mode_throw.cpp
++++ b/ArduCopter/mode_throw.cpp
+@@ -29,6 +29,9 @@ bool ModeThrow::init(bool ignore_checks)
+     // initialise state machine
+     stage = Throw_Disarmed;
+     nextmode_attempted = false;
++    // NEW: servo stage state
++    throw_srv_activated = false;
++    throw_srv_start_ms  = 0;
+ 
+     return true;
+ }
+@@ -92,6 +95,8 @@ void ModeThrow::run()
+             bool throw_condition_confirmed =
+                 ((AP_HAL::millis() - free_fall_start_ms) < 500) &&
+                 ((vel_u - free_fall_start_vel_u_ms) < -2.5f);
++
++            // NEW: confirmed throw → enter servo stage instead of jumping directly to uprighting
+             if (throw_condition_confirmed) {
+-                stage = Throw_Uprighting;
+-                gcs().send_text(MAV_SEVERITY_INFO, "Throw mode: throw detected");
++                stage = Throw_Servo;
++                gcs().send_text(MAV_SEVERITY_INFO, "Throw mode: throw detected, activating servo");
+             }
+         } else {
+             free_fall_start_ms = 0;
+@@ -105,6 +110,43 @@ void ModeThrow::run()
+         pos_control->relax_z_controller(0.0f);
+         break;
+ 
++    // ── NEW STAGE ──────────────────────────────────────────────────────────
++    // Throw_Servo: actuate servo on throw detection; hold motors off until
++    // the configured delay expires, then advance to Throw_Uprighting.
++    // ──────────────────────────────────────────────────────────────────────
++    case Throw_Servo: {
++        if (!throw_srv_activated) {
++            // Pulse the configured servo channel to the configured PWM value.
++            // The channel must have SERVOx_FUNCTION = k_throw_srv (213).
++            if (g.throw_srv_ch > 0) {
++                SRV_Channels::set_output_pwm(SRV_Channel::k_throw_srv,
++                                             (uint16_t)g.throw_srv_pwm);
++                gcs().send_text(MAV_SEVERITY_INFO,
++                                "Throw mode: servo pwm=%d set",
++                                (int)g.throw_srv_pwm);
++            }
++            throw_srv_start_ms  = AP_HAL::millis();
++            throw_srv_activated = true;
++        }
++
++        uint32_t elapsed_ms = AP_HAL::millis() - throw_srv_start_ms;
++        uint32_t delay_ms   = (uint32_t)MAX(0, (int32_t)g.throw_srv_dly_ms);
++
++        if (elapsed_ms >= delay_ms) {
++            // Delay elapsed → proceed to uprighting
++            stage = Throw_Uprighting;
++            gcs().send_text(MAV_SEVERITY_INFO,
++                            "Throw mode: servo delay elapsed (%u ms), uprighting",
++                            (unsigned)elapsed_ms);
++        }
++
++        // Motors remain stopped throughout the servo delay window
++        attitude_control->reset_yaw_target_and_rate();
++        attitude_control->reset_rate_controller_I_terms();
++        attitude_control->set_throttle_out(0.0f, true, g.throttle_filt);
++        pos_control->relax_z_controller(0.0f);
++        break;
++    }
++    // ── END NEW STAGE ──────────────────────────────────────────────────────
++
+     case Throw_Uprighting:
+         // ... (unchanged)
+
+diff --git a/ArduCopter/mode.h b/ArduCopter/mode.h
+--- a/ArduCopter/mode.h
++++ b/ArduCopter/mode.h
+@@ Inside class ModeThrow protected section @
+     enum ThrowStage {
+         Throw_Disarmed,
+         Throw_Detecting,
++        Throw_Servo,        // NEW: servo actuation delay stage
+         Throw_Uprighting,
+         Throw_HgtStabilise,
+         Throw_PosHold,
+     };
+ 
+     ThrowStage stage;
+     bool nextmode_attempted;
+     uint32_t free_fall_start_ms;
+     float    free_fall_start_vel_u_ms;
+ 
++    // NEW: servo stage tracking
++    bool     throw_srv_activated;
++    uint32_t throw_srv_start_ms;
+ 
+     bool throw_attitude_good() const;
+     bool throw_height_good() const;
+
+diff --git a/ArduCopter/Parameters.h b/ArduCopter/Parameters.h
+--- a/ArduCopter/Parameters.h
++++ b/ArduCopter/Parameters.h
+@@ Inside enum k_param, after k_throw_nextmode @@
++        k_throw_srv_ch,
++        k_throw_srv_pwm,
++        k_throw_srv_dly_ms,
+
+@@ Inside ParametersG struct, after throw_nextmode @@
++    AP_Int8  throw_srv_ch;       // servo channel (must have SERVOx_FUNCTION=213)
++    AP_Int16 throw_srv_pwm;      // PWM to send on throw detection
++    AP_Int16 throw_srv_dly_ms;   // delay (ms) before uprighting
+
+diff --git a/ArduCopter/Parameters.cpp b/ArduCopter/Parameters.cpp
+--- a/ArduCopter/Parameters.cpp
++++ b/ArduCopter/Parameters.cpp
+@@ After THROW_NEXTMODE entry in parameter table @@
++    // @Param: THROW_SRV_CH
++    // @DisplayName: Throw servo channel
++    // @Description: Servo output channel actuated on throw detection (before motors spin).
++    //   Set the matching SERVOx_FUNCTION to THROW_SRV (213). Set 0 to disable.
++    // @Range: 0 16
++    // @User: Standard
++    GSCALAR(throw_srv_ch,     "THROW_SRV_CH",  0),
++
++    // @Param: THROW_SRV_PWM
++    // @DisplayName: Throw servo PWM value
++    // @Description: PWM (µs) output sent to throw servo on throw detection.
++    // @Range: 1000 2000
++    // @Units: us
++    // @User: Standard
++    GSCALAR(throw_srv_pwm,    "THROW_SRV_PWM", 1900),
++
++    // @Param: THROW_SRV_DLY
++    // @DisplayName: Throw servo delay (ms)
++    // @Description: Time in ms to wait after servo actuation before motors spin up.
++    //   Default 500 ms.
++    // @Range: 0 5000
++    // @Units: ms
++    // @User: Standard
++    GSCALAR(throw_srv_dly_ms, "THROW_SRV_DLY", 500),
+
+diff --git a/libraries/SRV_Channel/SRV_Channel.h b/libraries/SRV_Channel/SRV_Channel.h
+--- a/libraries/SRV_Channel/SRV_Channel.h
++++ b/libraries/SRV_Channel/SRV_Channel.h
+@@ Inside enum class Function @@
++        k_throw_srv = 213,   // throw-mode servo actuator (NEW)
+
+diff --git a/libraries/SRV_Channel/SRV_Channels.cpp b/libraries/SRV_Channel/SRV_Channels.cpp
+--- a/libraries/SRV_Channel/SRV_Channels.cpp
++++ b/libraries/SRV_Channel/SRV_Channels.cpp
+@@ Inside function_name() or equivalent lookup @@
++    case SRV_Channel::k_throw_srv: return "ThrowSrv";
+
