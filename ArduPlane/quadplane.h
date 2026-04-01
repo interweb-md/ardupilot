@@ -394,6 +394,11 @@ private:
     // minimum altitude above home before Q_THROW can trigger uprighting
     AP_Float qthrow_min_alt;
 
+    // Q_THROW servo deployment control
+    AP_Int16 qthrow_servo_deploy_pwm;
+    AP_Int16 qthrow_servo_retract_pwm;
+    AP_Int16 qthrow_servo_delay_ms;
+
     // gain from forward acceleration to forward throttle
     AP_Float q_fwd_thr_gain;
 

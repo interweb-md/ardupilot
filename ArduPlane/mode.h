@@ -919,6 +919,7 @@ public:
 protected:
 
     bool _enter() override;
+    void _exit() override;
     bool _pre_arm_checks(size_t buflen, char *buffer) const override;
 
 private:
@@ -926,6 +927,8 @@ private:
     enum class Stage : uint8_t {
         Disarmed,
         Detecting,
+        Servo,
+        WaitThrottleUnlimited,
         Uprighting,
     };
 
@@ -937,6 +940,8 @@ private:
     uint32_t free_fall_start_ms;
     float free_fall_start_vel_u_ms;
     bool next_mode_attempted;
+    uint32_t servo_stage_start_ms;
+    bool servo_deployed;
 };
 
 #if QAUTOTUNE_ENABLED

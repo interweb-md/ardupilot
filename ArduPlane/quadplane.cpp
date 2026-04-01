@@ -588,6 +588,33 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
     // @User: Standard
     AP_GROUPINFO("THROW_MIN_ALT", 44, QuadPlane, qthrow_min_alt, 3.0f),
 
+    // @Param: THROW_SRV_DPLY
+    // @DisplayName: Q_THROW servo deploy PWM
+    // @Description: PWM sent to the THROW_SERVO output function immediately after Q_THROW detects a throw.
+    // @Units: PWM
+    // @Range: 800 2200
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("THROW_SRV_DPLY", 45, QuadPlane, qthrow_servo_deploy_pwm, 1900),
+
+    // @Param: THROW_SRV_RTRT
+    // @DisplayName: Q_THROW servo retract PWM
+    // @Description: PWM sent to the THROW_SERVO output function after Q_THROW servo deploy delay expires.
+    // @Units: PWM
+    // @Range: 800 2200
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("THROW_SRV_RTRT", 46, QuadPlane, qthrow_servo_retract_pwm, 1100),
+
+    // @Param: THROW_SRV_DLY
+    // @DisplayName: Q_THROW servo delay
+    // @Description: Time in milliseconds between sending deploy and retract PWM values for THROW_SERVO after throw detection.
+    // @Units: ms
+    // @Range: 0 5000
+    // @Increment: 10
+    // @User: Standard
+    AP_GROUPINFO("THROW_SRV_DLY", 47, QuadPlane, qthrow_servo_delay_ms, 500),
+
     AP_GROUPEND
 };
 

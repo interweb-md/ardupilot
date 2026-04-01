@@ -26,8 +26,17 @@ bool ModeQThrow::_enter()
     free_fall_start_ms = 0;
     free_fall_start_vel_u_ms = 0;
     next_mode_attempted = false;
+    servo_stage_start_ms = 0;
+    servo_deployed = false;
+    AP_Notify::flags.waiting_for_throw = false;
 
     return true;
+}
+
+void ModeQThrow::_exit()
+{
+    AP_Notify::flags.waiting_for_throw = false;
+    SRV_Channels::set_output_pwm(SRV_Channel::k_throw_servo, quadplane.qthrow_servo_retract_pwm);
 }
 
 bool ModeQThrow::_pre_arm_checks(size_t buflen, char *buffer) const
@@ -65,7 +74,14 @@ void ModeQThrow::run()
         gcs().send_text(MAV_SEVERITY_INFO, "QThrow: waiting for throw");
         stage = Stage::Detecting;
     } else if ((stage == Stage::Detecting) && throw_detected()) {
-        gcs().send_text(MAV_SEVERITY_INFO, "QThrow: throw detected");
+        gcs().send_text(MAV_SEVERITY_INFO, "QThrow: throw detected - spooling motors");
+        AP_Notify::flags.waiting_for_throw = false;
+        servo_stage_start_ms = 0;
+        servo_deployed = false;
+        stage = Stage::Servo;
+    } else if ((stage == Stage::WaitThrottleUnlimited) &&
+               (quadplane.motors->get_spool_state() == AP_Motors::SpoolState::THROTTLE_UNLIMITED)) {
+        gcs().send_text(MAV_SEVERITY_INFO, "QThrow: throttle unlimited - uprighting");
         stage = Stage::Uprighting;
     } else if ((stage == Stage::Uprighting) && throw_attitude_good() && !next_mode_attempted) {
         next_mode_attempted = true;
@@ -74,11 +90,39 @@ void ModeQThrow::run()
 
     switch (stage) {
     case Stage::Disarmed:
+        quadplane.set_desired_spool_state(AP_Motors::DesiredSpoolState::SHUT_DOWN);
+        attitude_control->set_throttle_out(0.0f, true, 0.0f);
+        quadplane.relax_attitude_control();
+        SRV_Channels::set_output_pwm(SRV_Channel::k_throw_servo, quadplane.qthrow_servo_retract_pwm);
+        AP_Notify::flags.waiting_for_throw = false;
+        break;
+
     case Stage::Detecting:
         quadplane.set_desired_spool_state(AP_Motors::DesiredSpoolState::SHUT_DOWN);
         attitude_control->set_throttle_out(0.0f, true, 0.0f);
         quadplane.relax_attitude_control();
+        AP_Notify::flags.waiting_for_throw = true;
         break;
+
+    case Stage::WaitThrottleUnlimited:
+        quadplane.set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+        break;
+
+    case Stage::Servo: {
+        quadplane.set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+        const uint32_t now = AP_HAL::millis();
+        if (!servo_deployed) {
+            SRV_Channels::set_output_pwm(SRV_Channel::k_throw_servo, quadplane.qthrow_servo_deploy_pwm);
+            servo_deployed = true;
+            servo_stage_start_ms = now;
+            break;
+        }
+        if ((now - servo_stage_start_ms) >= uint32_t(MAX(0, quadplane.qthrow_servo_delay_ms.get()))) {
+            SRV_Channels::set_output_pwm(SRV_Channel::k_throw_servo, quadplane.qthrow_servo_retract_pwm);
+            stage = Stage::WaitThrottleUnlimited;
+        }
+        break;
+    }
 
     case Stage::Uprighting:
         quadplane.hold_stabilize(THROW_STABILIZE_THROTTLE);
