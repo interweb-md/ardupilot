@@ -31,6 +31,8 @@ bool ModeThrow::init(bool ignore_checks)
 
     if (SRV_Channels::function_assigned(SRV_Channel::k_throw_servo)) {
         SRV_Channels::set_output_pwm_chan(SRV_Channel::k_throw_servo, g2.throw_servo_idle_pos);  // retract
+    }else{
+
     }
 
     return true;
@@ -59,22 +61,19 @@ void ModeThrow::run()
     } else if (stage == Throw_Detecting && throw_detected()){
         gcs().send_text(MAV_SEVERITY_INFO,"throw detected - spooling motors");
         copter.set_land_complete(false);
-        stage = Throw_Wait_Throttle_Unlimited;
 
-        // Cancel the waiting for throw tone sequence
-        AP_Notify::flags.waiting_for_throw = false;
         stage = Throw_Servo;
         servo_trigger_start_ms = AP_HAL::millis();
         servo_triggered = false;
 
     } else if (stage == Throw_Servo && servo_triggered && 
                (AP_HAL::millis() - servo_trigger_start_ms) >= g2.throw_servo_delay_ms.get()) {
-        gcs().send_text(MAV_SEVERITY_INFO,"servo delay expired - uprighting");
+        gcs().send_text(MAV_SEVERITY_INFO,"servo delay expired - deploying servo");
         stage = Throw_Wait_Throttle_Unlimited;
 
     } else if (stage == Throw_Wait_Throttle_Unlimited &&
                motors->get_spool_state() == AP_Motors::SpoolState::THROTTLE_UNLIMITED) {
-        gcs().send_text(MAV_SEVERITY_INFO,"throttle is unlimited - deploying servo");
+        gcs().send_text(MAV_SEVERITY_INFO,"throttle is unlimited - uprighting");
                 stage = Throw_Uprighting;
  
     } else if (stage == Throw_Uprighting && throw_attitude_good()) {
@@ -114,6 +113,7 @@ void ModeThrow::run()
                 case Mode::Number::BRAKE:
                 case Mode::Number::LOITER:
                     set_mode((Mode::Number)g2.throw_nextmode.get(), ModeReason::THROW_COMPLETE);
+                    gcs().send_text(MAV_SEVERITY_INFO,"position under control - switching next mode");
                     break;
                 default:
                     // do nothing
@@ -164,13 +164,14 @@ void ModeThrow::run()
     case Throw_Servo:
 
         // set motors to full range
-        motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+        motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::SHUT_DOWN);
 
         // Trigger servo only once upon entering this stage
         if (!servo_triggered) {
-            trigger_payload_servo();
+            trigger_deploy_servo();
             servo_triggered = true;
         }
+        AP_Notify::flags.waiting_for_throw = false;
 
         break;
 
@@ -191,7 +192,7 @@ void ModeThrow::run()
         // output 50% throttle and turn off angle boost to maximise righting moment
         attitude_control->set_throttle_out(0.5f, false, g.throttle_filt);
 
-        retract_payload();
+        retract_deploy_servo();
 
         break;
 
