@@ -167,6 +167,8 @@ const AP_Param::GroupInfo SRV_Channel::var_info[] = {
     // @Values{Sub}: 181:Lights1,182:Lights2
     // @Values{Sub}: 183:VideoSwitch
     // @Values{Sub}: 184:Actuator1,185:Actuator2,186:Actuator3,187:Actuator4,188:Actuator5,189:Actuator6
+    // @Values: 190:ThrowServo
+    // @Values{Plane, Copter}: 190:ThrowServo
     // @User: Standard
     // @RebootRequired: True
     AP_GROUPINFO("FUNCTION",  5, SRV_Channel, function, 0),
