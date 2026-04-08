@@ -59,16 +59,21 @@ void ModeThrow::run()
         stage = Throw_Detecting;
 
     } else if (stage == Throw_Detecting && throw_detected()){
-        gcs().send_text(MAV_SEVERITY_INFO,"throw detected - spooling motors");
         copter.set_land_complete(false);
 
-        stage = Throw_Servo;
-        servo_trigger_start_ms = AP_HAL::millis();
-        servo_triggered = false;
-
+        if ((uint32_t) g2.throw_servo_delay_ms.get() > 0){
+            stage = Throw_Servo;
+            servo_trigger_start_ms = AP_HAL::millis();
+            servo_triggered = false;
+            gcs().send_text(MAV_SEVERITY_INFO,"throw detected - deploying servo");
+        }else{
+            gcs().send_text(MAV_SEVERITY_INFO,"skipping deploy servo - spooling motors");
+            stage = Throw_Wait_Throttle_Unlimited;
+        }
+        
     } else if (stage == Throw_Servo && servo_triggered && 
-               (AP_HAL::millis() - servo_trigger_start_ms) >= g2.throw_servo_delay_ms.get()) {
-        gcs().send_text(MAV_SEVERITY_INFO,"servo delay expired - deploying servo");
+               (AP_HAL::millis() - servo_trigger_start_ms) >= (uint32_t) g2.throw_servo_delay_ms.get()) {
+        gcs().send_text(MAV_SEVERITY_INFO,"servo delay expired - spooling motors");
         stage = Throw_Wait_Throttle_Unlimited;
 
     } else if (stage == Throw_Wait_Throttle_Unlimited &&

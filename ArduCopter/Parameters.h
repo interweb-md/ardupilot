@@ -27,7 +27,7 @@ public:
     // The increment will prevent old parameters from being used incorrectly
     // by newer code.
     //
-    static const uint16_t        k_format_version = 120;
+    static const uint16_t        k_format_version = 121;
 
     // Parameter identities.
     //
@@ -504,9 +504,9 @@ public:
     // Throw mode parameters
     AP_Int8 throw_nextmode;
     AP_Enum<ModeThrow::ThrowType> throw_type;
-    AP_Int16        throw_servo_delay_ms;         // delay in milliseconds before transitioning to uprighting
     AP_Int16        throw_servo_idle_pos;
     AP_Int16        throw_servo_deploy_pos;
+    AP_Int16       throw_servo_delay_ms;         // delay in milliseconds before transitioning to uprighting
 #endif
 
     // ground effect compensation enable/disable

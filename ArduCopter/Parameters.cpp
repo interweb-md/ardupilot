@@ -628,29 +628,6 @@ const AP_Param::GroupInfo ParametersG2::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("THROW_TYPE", 4, ParametersG2, throw_type, (float)ModeThrow::ThrowType::Upward),
     
-    // @Param: THROW_SRV_IDLE_P
-    // @DisplayName: Servo position in idle state
-    // @Description: Value in ms for servo in idle (not deployed state)
-    // @Range: 1000 2000
-    // @Units: ms
-    // @User: Standard
-    AP_GROUPINFO("THROW_SRV_IDLE_P", 62, ParametersG2, throw_servo_idle_pos, 1000),
-
-    // @Param: THROW_SRV_DEPL_P
-    // @DisplayName: Servo position in deployed state
-    // @Description: Value in ms for servo in deployed state
-    // @Range: 1000 2000
-    // @Units: ms
-    // @User: Standard
-    AP_GROUPINFO("THROW_SRV_DEPL_P", 63, ParametersG2, throw_servo_deploy_pos, 2000),
-
-    // @Param: THROW_SERVO_DELAY
-    // @DisplayName: Throw mode servo trigger delay
-    // @Description: Time in milliseconds to hold servo deployment before transitioning to uprighting
-    // @Range: 0 5000
-    // @Units: ms
-    // @User: Standard
-    AP_GROUPINFO("THROW_SERVO_DELAY", 63, ParametersG2, throw_servo_delay_ms, 500),
 #endif
 
     // @Param: GND_EFFECT_COMP
@@ -1195,6 +1172,34 @@ const AP_Param::GroupInfo ParametersG2::var_info2[] = {
     AP_GROUPINFO("PILOT_TKO_ALT_M", 20, ParametersG2, pilot_takeoff_alt_m, PILOT_TKO_ALT_M_DEFAULT),
 
     // ID 62 is reserved for the AP_SUBGROUPEXTENSION
+#if MODE_THROW_ENABLED
+    //
+        // @Param: THROW_SRV_IDLE_P
+    // @DisplayName: Servo position in idle state
+    // @Description: Value in ms for servo in idle (not deployed state)
+    // @Range: 1000 2000
+    // @Units: ms
+    // @User: Standard
+    AP_GROUPINFO("THR_SRV_IDLE_P", 21, ParametersG2, throw_servo_idle_pos, 1000),
+
+    // @Param: THROW_SRV_DEPL_P
+    // @DisplayName: Servo position in deployed state
+    // @Description: Value in ms for servo in deployed state
+    // @Range: 1000 2000
+    // @Units: ms
+    // @User: Standard
+    AP_GROUPINFO("THR_SRV_DEPL_P", 22, ParametersG2, throw_servo_deploy_pos, 2000),
+
+    // @Param: THROW_SERVO_DELAY
+    // @DisplayName: Throw mode servo trigger delay
+    // @Description: Time in milliseconds to hold servo deployment before transitioning to uprighting
+    // @Range: 0 5000
+    // @Units: ms
+    // @User: Standard
+    AP_GROUPINFO("THR_SRV_DLY", 23, ParametersG2, throw_servo_delay_ms, 500),
+
+    //
+#endif
 
     AP_GROUPEND
 };
