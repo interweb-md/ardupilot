@@ -353,11 +353,15 @@ bool ModeThrow::throw_detected()
     if (possible_throw_detected && ((AP_HAL::millis() - free_fall_start_ms) > 500)) {
         free_fall_start_ms = AP_HAL::millis();
         free_fall_start_vel_u_ms = pos_control->get_vel_estimate_U_ms();
+        trigger_deploy_servo();
     }
 
     // Once a possible throw condition has been detected, we check for 2.5 m/s of downwards velocity change in less than 0.5 seconds to confirm
     bool throw_condition_confirmed = ((AP_HAL::millis() - free_fall_start_ms < 500) && ((pos_control->get_vel_estimate_U_ms() - free_fall_start_vel_u_ms) < -2.5));
 
+    if(throw_condition_confirmed){
+        retract_deploy_servo();
+    }
     // start motors and enter the control mode if we are in continuous freefall
     return throw_condition_confirmed;
 }
