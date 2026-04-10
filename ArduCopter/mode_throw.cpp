@@ -29,11 +29,8 @@ bool ModeThrow::init(bool ignore_checks)
     pos_control->D_set_max_speed_accel_m(BRAKE_MODE_SPEED_Z_MS, BRAKE_MODE_SPEED_Z_MS, BRAKE_MODE_DECEL_RATE_MSS);
     pos_control->D_set_correction_speed_accel_m(BRAKE_MODE_SPEED_Z_MS, BRAKE_MODE_SPEED_Z_MS, BRAKE_MODE_DECEL_RATE_MSS);
 
-    if (SRV_Channels::function_assigned(SRV_Channel::k_throw_servo)) {
-        SRV_Channels::set_output_pwm_chan(SRV_Channel::k_throw_servo, g2.throw_servo_idle_pos);  // retract
-    }else{
-
-    }
+    SRV_Channels::set_output_pwm(SRV_Channel::k_throw_servo, g2.throw_servo_idle_pos);  // retract
+    deploy_servo = false;
 
     return true;
 }
@@ -49,6 +46,8 @@ void ModeThrow::run()
     Throw_HgtStabilise - the copter is kept level and  height is stabilised about the target height
     Throw_PosHold - the copter is kept at a constant position and height
     */
+
+    refresh_deploy_servo();
 
     if (!motors->armed()) {
         // state machine entry is always from a disarmed state
@@ -79,6 +78,7 @@ void ModeThrow::run()
     } else if (stage == Throw_Wait_Throttle_Unlimited &&
                motors->get_spool_state() == AP_Motors::SpoolState::THROTTLE_UNLIMITED) {
         gcs().send_text(MAV_SEVERITY_INFO,"throttle is unlimited - uprighting");
+                deploy_servo = false;
                 stage = Throw_Uprighting;
  
     } else if (stage == Throw_Uprighting && throw_attitude_good()) {
@@ -117,6 +117,7 @@ void ModeThrow::run()
                 case Mode::Number::LAND:
                 case Mode::Number::BRAKE:
                 case Mode::Number::LOITER:
+                case Mode::Number::ALT_HOLD:
                     set_mode((Mode::Number)g2.throw_nextmode.get(), ModeReason::THROW_COMPLETE);
                     gcs().send_text(MAV_SEVERITY_INFO,"position under control - switching next mode");
                     break;
@@ -285,22 +286,17 @@ void ModeThrow::run()
 #endif  // HAL_LOGGING_ENABLED
 }
 // NEW: Helper function to trigger servo deployment
-void ModeThrow::trigger_deploy_servo()
+void ModeThrow::trigger_deploy_servo() const
 {
         // Check if throw servo is assigned to a channel
-    if (!SRV_Channels::function_assigned(SRV_Channel::k_throw_servo)) {
-        return;  // Servo not configured
-    }
+        SRV_Channels::set_output_pwm(SRV_Channel::k_throw_servo, g2.throw_servo_deploy_pos);  // deploy
+        gcs().send_text(MAV_SEVERITY_INFO, "Throw: Servo deployed");
   
-    SRV_Channels::set_output_pwm_chan(SRV_Channel::k_throw_servo, g2.throw_servo_idle_pos);  // deploy
-    gcs().send_text(MAV_SEVERITY_INFO, "Throw: Servo deployed");
 }
 
-void ModeThrow::retract_deploy_servo()
+void ModeThrow::retract_deploy_servo() const
 {
-    if (SRV_Channels::function_assigned(SRV_Channel::k_throw_servo)) {
-        SRV_Channels::set_output_pwm_chan(SRV_Channel::k_throw_servo, g2.throw_servo_deploy_pos);  // retract
-    }
+        SRV_Channels::set_output_pwm(SRV_Channel::k_throw_servo, g2.throw_servo_idle_pos);  // retract
 }
 
 bool ModeThrow::throw_detected()
@@ -353,15 +349,15 @@ bool ModeThrow::throw_detected()
     if (possible_throw_detected && ((AP_HAL::millis() - free_fall_start_ms) > 500)) {
         free_fall_start_ms = AP_HAL::millis();
         free_fall_start_vel_u_ms = pos_control->get_vel_estimate_U_ms();
-        trigger_deploy_servo();
+        deploy_servo = true;
     }
 
     // Once a possible throw condition has been detected, we check for 2.5 m/s of downwards velocity change in less than 0.5 seconds to confirm
     bool throw_condition_confirmed = ((AP_HAL::millis() - free_fall_start_ms < 500) && ((pos_control->get_vel_estimate_U_ms() - free_fall_start_vel_u_ms) < -2.5));
 
-    if(throw_condition_confirmed){
-        retract_deploy_servo();
-    }
+    // if(throw_condition_confirmed){
+    //     retract_deploy_servo();
+    // }
     // start motors and enter the control mode if we are in continuous freefall
     return throw_condition_confirmed;
 }
@@ -382,7 +378,32 @@ bool ModeThrow::throw_height_good() const
 bool ModeThrow::throw_position_good() const
 {
     // check that our horizontal position error is within 0.5 m
-    return (pos_control->get_pos_error_NE_m() < 0.50);
+    return true;
 }
+
+/*
+ * check_throw_servo_rc7() - called from the main copter fast loop
+ *
+ * If RC7 input is above 1600 µs, find whichever servo output has
+ * SERVOx_FUNCTION == k_throw_servo and drive it to THROW_SRV_PWM.
+ * Otherwise drive it to THROW_SRV_PWM_RETRACT (or trim = neutral).
+ *
+ * Call this from Copter::fast_loop() or from ModeThrow::run().
+ */
+void ModeThrow::refresh_deploy_servo() const
+{
+    // ── 1. Read raw RC7 input ─────────────────────────────────────────────
+    RC_Channel *rc7 = rc().channel(6);   // 0-indexed, so channel 7 = index 6
+    if ((rc7 != nullptr && rc7->get_radio_in() > 1600) || deploy_servo) {
+        trigger_deploy_servo();
+    }else{
+        retract_deploy_servo();
+    }
+}
+// bool ModeThrow::throw_position_good() const
+// {
+//     // check that our horizontal position error is within 0.5 m
+//     return (pos_control->get_pos_error_NE_m() < 0.50);
+// }
 
 #endif

@@ -1886,8 +1886,9 @@ private:
     bool throw_position_good() const;
     bool throw_height_good() const;
     bool throw_attitude_good() const;
-    void trigger_deploy_servo();
-    void retract_deploy_servo();
+    void trigger_deploy_servo() const;
+    void retract_deploy_servo() const;
+    void refresh_deploy_servo() const;
 
     // Throw stages
     enum ThrowModeStage {
@@ -1908,6 +1909,7 @@ private:
     float free_fall_start_vel_u_ms;     // vertical velocity when free fall was detected
     uint32_t servo_trigger_start_ms;       // system time when servo trigger stage started
     bool servo_triggered;                  // flag to ensure servo is only triggered once
+    bool deploy_servo;
 };
 
 #if MODE_TURTLE_ENABLED
