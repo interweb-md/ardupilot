@@ -32,6 +32,16 @@ bool ModeThrow::init(bool ignore_checks)
     SRV_Channels::set_output_pwm(SRV_Channel::k_throw_servo, g2.throw_servo_idle_pos);  // retract
     deploy_servo = false;
 
+    if (!ahrs.has_status(AP_AHRS::Status::ATTITUDE_VALID)) {
+        return false;
+    }
+    // if (!ahrs.has_status(AP_AHRS::Status::HORIZ_POS_ABS)) {
+    //     return false;
+    // }
+    if (!ahrs.has_status(AP_AHRS::Status::VERT_POS)) {
+        return false;
+    }
+
     return true;
 }
 
@@ -56,6 +66,8 @@ void ModeThrow::run()
     } else if (stage == Throw_Disarmed && motors->armed()) {
         gcs().send_text(MAV_SEVERITY_INFO,"waiting for throw");
         stage = Throw_Detecting;
+        // Play the waiting for throw tone sequence to alert the user
+        AP_Notify::flags.waiting_for_throw = true;
 
     } else if (stage == Throw_Detecting && throw_detected()){
         copter.set_land_complete(false);
@@ -63,14 +75,12 @@ void ModeThrow::run()
         if ((uint32_t) g2.throw_servo_delay_ms.get() > 0){
             stage = Throw_Servo;
             servo_trigger_start_ms = AP_HAL::millis();
-            servo_triggered = false;
-            gcs().send_text(MAV_SEVERITY_INFO,"throw detected - deploying servo");
         }else{
-            gcs().send_text(MAV_SEVERITY_INFO,"skipping deploy servo - spooling motors");
+            gcs().send_text(MAV_SEVERITY_INFO,"skipping delay after deploy - spooling motors");
             stage = Throw_Wait_Throttle_Unlimited;
         }
         
-    } else if (stage == Throw_Servo && servo_triggered && 
+    } else if (stage == Throw_Servo && deploy_servo && 
                (AP_HAL::millis() - servo_trigger_start_ms) >= (uint32_t) g2.throw_servo_delay_ms.get()) {
         gcs().send_text(MAV_SEVERITY_INFO,"servo delay expired - spooling motors");
         stage = Throw_Wait_Throttle_Unlimited;
@@ -80,6 +90,8 @@ void ModeThrow::run()
         gcs().send_text(MAV_SEVERITY_INFO,"throttle is unlimited - uprighting");
                 deploy_servo = false;
                 stage = Throw_Uprighting;
+                AP_Notify::flags.waiting_for_throw = false;
+
  
     } else if (stage == Throw_Uprighting && throw_attitude_good()) {
         gcs().send_text(MAV_SEVERITY_INFO,"uprighted - controlling height");
@@ -161,8 +173,6 @@ void ModeThrow::run()
         attitude_control->reset_rate_controller_I_terms();
         attitude_control->set_throttle_out(0,true,g.throttle_filt);
 
-        // Play the waiting for throw tone sequence to alert the user
-        AP_Notify::flags.waiting_for_throw = true;
 
         break;
 
@@ -173,11 +183,9 @@ void ModeThrow::run()
         motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::SHUT_DOWN);
 
         // Trigger servo only once upon entering this stage
-        if (!servo_triggered) {
-            trigger_deploy_servo();
-            servo_triggered = true;
+        if (!deploy_servo) {
+            deploy_servo = true;
         }
-        AP_Notify::flags.waiting_for_throw = false;
 
         break;
 
@@ -290,7 +298,6 @@ void ModeThrow::trigger_deploy_servo() const
 {
         // Check if throw servo is assigned to a channel
         SRV_Channels::set_output_pwm(SRV_Channel::k_throw_servo, g2.throw_servo_deploy_pos);  // deploy
-        gcs().send_text(MAV_SEVERITY_INFO, "Throw: Servo deployed");
   
 }
 
@@ -301,65 +308,61 @@ void ModeThrow::retract_deploy_servo() const
 
 bool ModeThrow::throw_detected()
 {
-    // Check that the AHRS is healthy enough for us to be doing detection:
-    if (!ahrs.has_status(AP_AHRS::Status::ATTITUDE_VALID)) {
-        return false;
+
+    if(!deploy_servo){
+        // Check for high speed ( >5 m/s)
+        bool high_speed = pos_control->get_vel_estimate_NED_ms().length_squared() > (THROW_HIGH_SPEED_MS * THROW_HIGH_SPEED_MS);
+
+        // check for upwards or downwards trajectory (airdrop) of 0.50 m/s
+        bool changing_height;
+        if (g2.throw_type == ThrowType::Drop) {
+            changing_height = pos_control->get_vel_estimate_U_ms() < -THROW_VERTICAL_SPEED_MS;
+        } else {
+            changing_height = pos_control->get_vel_estimate_U_ms() > THROW_VERTICAL_SPEED_MS;
+        }
+
+        // Check the vertical acceleration is greater than 0.25g
+        bool free_falling = ahrs.get_accel_ef().z > -0.25 * GRAVITY_MSS;
+
+        // Check if the accel length is < 1.0g indicating that any throw action is complete and the copter has been released
+        bool no_throw_action = copter.ins.get_accel().length() < 1.0f * GRAVITY_MSS;
+
+        // fetch the altitude above home
+        float altitude_above_home_m;  // Use altitude above home if it is set, otherwise relative to EKF origin
+        if (ahrs.home_is_set()) {
+            ahrs.get_relative_position_D_home(altitude_above_home_m);
+            altitude_above_home_m = -altitude_above_home_m; // altitude above home is returned as negative
+        } else {
+            altitude_above_home_m = pos_control->get_pos_estimate_U_m();
+        }
+
+        // Check that the altitude is within user defined limits
+        const bool height_within_params = (g.throw_altitude_min == 0 || altitude_above_home_m > g.throw_altitude_min) && (g.throw_altitude_max == 0 || (altitude_above_home_m < g.throw_altitude_max));
+
+        // High velocity or free-fall combined with increasing height indicate a possible air-drop or throw release  
+        bool possible_throw_detected = (free_falling || high_speed) && changing_height && no_throw_action && height_within_params;
+
+
+        // Record time and vertical velocity when we detect the possible throw
+        if (possible_throw_detected && ((AP_HAL::millis() - free_fall_start_ms) > 500)) {
+            free_fall_start_ms = AP_HAL::millis();
+            free_fall_start_vel_u_ms = pos_control->get_vel_estimate_U_ms();
+            deploy_servo = true;
+            gcs().send_text(MAV_SEVERITY_INFO, "Throw: Servo deploy");
+
+        }
+    }else{
+
+        // Once a possible throw condition has been detected, we check for 2.5 m/s of downwards velocity change in less than 0.5 seconds to confirm
+        bool throw_condition_confirmed = ((AP_HAL::millis() - free_fall_start_ms < 500) && ((pos_control->get_vel_estimate_U_ms() - free_fall_start_vel_u_ms) < -2.5));
+        
+        // if(throw_condition_confirmed){
+        //     retract_deploy_servo();
+        // }
+        // start motors and enter the control mode if we are in continuous freefall
+        return throw_condition_confirmed;
     }
-    if (!ahrs.has_status(AP_AHRS::Status::HORIZ_POS_ABS)) {
-        return false;
-    }
-    if (!ahrs.has_status(AP_AHRS::Status::VERT_POS)) {
-        return false;
-    }
-
-    // Check for high speed ( >5 m/s)
-    bool high_speed = pos_control->get_vel_estimate_NED_ms().length_squared() > (THROW_HIGH_SPEED_MS * THROW_HIGH_SPEED_MS);
-
-    // check for upwards or downwards trajectory (airdrop) of 0.50 m/s
-    bool changing_height;
-    if (g2.throw_type == ThrowType::Drop) {
-        changing_height = pos_control->get_vel_estimate_U_ms() < -THROW_VERTICAL_SPEED_MS;
-    } else {
-        changing_height = pos_control->get_vel_estimate_U_ms() > THROW_VERTICAL_SPEED_MS;
-    }
-
-    // Check the vertical acceleration is greater than 0.25g
-    bool free_falling = ahrs.get_accel_ef().z > -0.25 * GRAVITY_MSS;
-
-    // Check if the accel length is < 1.0g indicating that any throw action is complete and the copter has been released
-    bool no_throw_action = copter.ins.get_accel().length() < 1.0f * GRAVITY_MSS;
-
-    // fetch the altitude above home
-    float altitude_above_home_m;  // Use altitude above home if it is set, otherwise relative to EKF origin
-    if (ahrs.home_is_set()) {
-        ahrs.get_relative_position_D_home(altitude_above_home_m);
-        altitude_above_home_m = -altitude_above_home_m; // altitude above home is returned as negative
-    } else {
-        altitude_above_home_m = pos_control->get_pos_estimate_U_m();
-    }
-
-    // Check that the altitude is within user defined limits
-    const bool height_within_params = (g.throw_altitude_min == 0 || altitude_above_home_m > g.throw_altitude_min) && (g.throw_altitude_max == 0 || (altitude_above_home_m < g.throw_altitude_max));
-
-    // High velocity or free-fall combined with increasing height indicate a possible air-drop or throw release  
-    bool possible_throw_detected = (free_falling || high_speed) && changing_height && no_throw_action && height_within_params;
-
-
-    // Record time and vertical velocity when we detect the possible throw
-    if (possible_throw_detected && ((AP_HAL::millis() - free_fall_start_ms) > 500)) {
-        free_fall_start_ms = AP_HAL::millis();
-        free_fall_start_vel_u_ms = pos_control->get_vel_estimate_U_ms();
-        deploy_servo = true;
-    }
-
-    // Once a possible throw condition has been detected, we check for 2.5 m/s of downwards velocity change in less than 0.5 seconds to confirm
-    bool throw_condition_confirmed = ((AP_HAL::millis() - free_fall_start_ms < 500) && ((pos_control->get_vel_estimate_U_ms() - free_fall_start_vel_u_ms) < -2.5));
-
-    // if(throw_condition_confirmed){
-    //     retract_deploy_servo();
-    // }
-    // start motors and enter the control mode if we are in continuous freefall
-    return throw_condition_confirmed;
+    return false;
 }
 
 bool ModeThrow::throw_attitude_good() const
