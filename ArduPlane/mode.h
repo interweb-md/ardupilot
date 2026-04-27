@@ -925,17 +925,23 @@ private:
 
     enum class Stage : uint8_t {
         Disarmed,
-        Detecting,
-        Uprighting,
+        WaitingForThrow,
+        DeployingWing,
+        VerticalRecover,
     };
 
     bool throw_detected();
     bool throw_attitude_good() const;
+    bool wing_deploy_servo_available() const;
+    bool manual_wing_deploy_requested() const;
+    void deploy_wing();
+    void relax_wing();
     bool switch_to_next_mode();
 
     Stage stage;
-    uint32_t free_fall_start_ms;
-    float free_fall_start_vel_u_ms;
+    uint32_t throw_accel_start_ms;
+    uint32_t deploy_start_ms;
+    uint32_t upright_start_ms;
     bool next_mode_attempted;
 };
 

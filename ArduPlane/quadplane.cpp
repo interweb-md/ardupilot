@@ -588,6 +588,22 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
     // @User: Standard
     AP_GROUPINFO("THROW_MIN_ALT", 44, QuadPlane, qthrow_min_alt, 3.0f),
 
+    // @Param: THROW_ACCEL
+    // @DisplayName: Q_THROW launch acceleration threshold
+    // @Description: Total accelerometer threshold in g used to detect the hand throw in Q_THROW mode. Larger values require a firmer launch. This detection does not depend on GPS or EKF position health.
+    // @Units: g
+    // @Range: 1.1 5.0
+    // @Increment: 0.1
+    // @User: Standard
+    AP_GROUPINFO("THROW_ACCEL", 45, QuadPlane, qthrow_accel_trigger, 1.5f),
+
+    // @Param: THROW_CHAN
+    // @DisplayName: Q_THROW manual wing deploy channel
+    // @Description: RC input channel used to manually deploy the Q_THROW wing actuator while disarmed in QTHROW mode. Set to 0 to disable. High switch position deploys, low or middle relaxes the servo to trim.
+    // @Range: 0 16
+    // @User: Standard
+    AP_GROUPINFO("THROW_CHAN", 46, QuadPlane, qthrow_deploy_channel, 0),
+
     AP_GROUPEND
 };
 

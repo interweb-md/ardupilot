@@ -394,6 +394,12 @@ private:
     // minimum altitude above home before Q_THROW can trigger uprighting
     AP_Float qthrow_min_alt;
 
+    // acceleration threshold in g used to trigger Q_THROW launch detection
+    AP_Float qthrow_accel_trigger;
+
+    // RC channel used as a manual wing deploy switch in Q_THROW while disarmed
+    AP_Int8 qthrow_deploy_channel;
+
     // gain from forward acceleration to forward throttle
     AP_Float q_fwd_thr_gain;
 
