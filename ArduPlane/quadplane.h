@@ -394,8 +394,17 @@ private:
     // minimum altitude above home before Q_THROW can trigger uprighting
     AP_Float qthrow_min_alt;
 
-    // acceleration threshold in g used to trigger Q_THROW launch detection
+    // acceleration threshold in g used to detect the Q_THROW launch spike
     AP_Float qthrow_accel_trigger;
+
+    // acceleration hold time in milliseconds used to qualify the launch spike
+    AP_Int16 qthrow_accel_hold_ms;
+
+    // acceleration threshold in g used to confirm the aircraft has left the hand
+    AP_Float qthrow_accel_release_g;
+
+    // maximum time allowed after spike detection to see the release acceleration drop
+    AP_Int16 qthrow_accel_release_timeout_ms;
 
     // RC channel used as a manual wing deploy switch in Q_THROW while disarmed
     AP_Int8 qthrow_deploy_channel;

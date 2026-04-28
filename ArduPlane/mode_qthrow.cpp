@@ -5,11 +5,8 @@
 
 namespace {
 
-constexpr float THROW_HIGH_SPEED_MS = 5.0f;
 constexpr float THROW_ATTITUDE_GOOD_COS = 0.866f;
 constexpr float THROW_STABILIZE_THROTTLE = 0.5f;
-constexpr float THROW_RELEASE_ACCEL_G = 1.15f;
-constexpr uint32_t THROW_ACCEL_HOLD_MS = 20;
 constexpr uint32_t THROW_WING_DEPLOY_DELAY_MS = 200;
 constexpr uint32_t THROW_ATTITUDE_HOLD_MS = 500;
 
@@ -27,7 +24,9 @@ bool ModeQThrow::_enter()
     }
 
     stage = Stage::Disarmed;
+    throw_detect_state = ThrowDetectState::Idle;
     throw_accel_start_ms = 0;
+    throw_release_start_ms = 0;
     deploy_start_ms = 0;
     upright_start_ms = 0;
     next_mode_attempted = false;
@@ -77,7 +76,9 @@ void ModeQThrow::run()
 
     if (!plane.arming.is_armed_and_safety_off()) {
         stage = Stage::Disarmed;
+        throw_detect_state = ThrowDetectState::Idle;
         throw_accel_start_ms = 0;
+        throw_release_start_ms = 0;
         deploy_start_ms = 0;
         upright_start_ms = 0;
         next_mode_attempted = false;
@@ -138,24 +139,51 @@ bool ModeQThrow::throw_detected()
 {
     const uint32_t now = AP_HAL::millis();
     const float accel_threshold_mss = MAX(1.1f, quadplane.qthrow_accel_trigger.get()) * GRAVITY_MSS;
-    const float release_threshold_mss = THROW_RELEASE_ACCEL_G * GRAVITY_MSS;
+    const float release_threshold_mss = constrain_float(quadplane.qthrow_accel_release_g.get(), 0.8f, 2.0f) * GRAVITY_MSS;
+    const uint32_t hold_ms = MAX<int16_t>(0, quadplane.qthrow_accel_hold_ms.get());
+    const uint32_t release_timeout_ms = MAX<int16_t>(20, quadplane.qthrow_accel_release_timeout_ms.get());
     const float accel_mss = plane.ins.get_accel().length();
+    const bool spike_present = accel_mss >= accel_threshold_mss;
 
-    if (accel_mss >= accel_threshold_mss) {
-        if (throw_accel_start_ms == 0) {
+    switch (throw_detect_state) {
+    case ThrowDetectState::Idle:
+        if (spike_present) {
+            throw_detect_state = ThrowDetectState::SpikeSeen;
             throw_accel_start_ms = now;
+        }
+        return false;
+
+    case ThrowDetectState::SpikeSeen:
+        if (!spike_present) {
+            throw_detect_state = ThrowDetectState::Idle;
+            throw_accel_start_ms = 0;
+            return false;
+        }
+        if ((now - throw_accel_start_ms) >= hold_ms) {
+            throw_detect_state = ThrowDetectState::HoldSatisfied;
+            throw_release_start_ms = now;
+        }
+        return false;
+
+    case ThrowDetectState::HoldSatisfied:
+        if (accel_mss <= release_threshold_mss) {
+            throw_detect_state = ThrowDetectState::Idle;
+            throw_accel_start_ms = 0;
+            throw_release_start_ms = 0;
+            return true;
+        }
+        if ((now - throw_release_start_ms) >= release_timeout_ms) {
+            throw_detect_state = ThrowDetectState::Idle;
+            throw_accel_start_ms = 0;
+            throw_release_start_ms = 0;
         }
         return false;
     }
 
-    if (throw_accel_start_ms == 0) {
-        return false;
-    }
-
-    const bool accel_held_long_enough = (now - throw_accel_start_ms) >= THROW_ACCEL_HOLD_MS;
+    throw_detect_state = ThrowDetectState::Idle;
     throw_accel_start_ms = 0;
-
-    return accel_held_long_enough && (accel_mss <= release_threshold_mss);
+    throw_release_start_ms = 0;
+    return false;
 }
 
 bool ModeQThrow::throw_attitude_good() const

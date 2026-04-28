@@ -590,19 +590,46 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
 
     // @Param: THROW_ACCEL
     // @DisplayName: Q_THROW launch acceleration threshold
-    // @Description: Total accelerometer threshold in g used to detect the hand throw in Q_THROW mode. Larger values require a firmer launch. This detection does not depend on GPS or EKF position health.
+    // @Description: Total accelerometer threshold in g used to detect the initial hand-throw acceleration spike in Q_THROW mode. Larger values require a firmer launch. This detection does not depend on GPS or EKF position health.
     // @Units: g
     // @Range: 1.1 5.0
     // @Increment: 0.1
     // @User: Standard
-    AP_GROUPINFO("THROW_ACCEL", 45, QuadPlane, qthrow_accel_trigger, 1.5f),
+    AP_GROUPINFO("THROW_ACCEL", 45, QuadPlane, qthrow_accel_trigger, 2.0f),
+
+    // @Param: THROW_HOLD
+    // @DisplayName: Q_THROW acceleration hold time
+    // @Description: Time in milliseconds that the Q_THROW launch acceleration spike must remain above Q_THROW_ACCEL before release detection begins.
+    // @Units: ms
+    // @Range: 0 200
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("THROW_HOLD", 46, QuadPlane, qthrow_accel_hold_ms, 20),
+
+    // @Param: THROW_REL_G
+    // @DisplayName: Q_THROW release acceleration threshold
+    // @Description: Total accelerometer threshold in g used to confirm that the aircraft has left the hand after the launch spike. Throw detection completes when acceleration drops below this value after meeting the spike and hold conditions.
+    // @Units: g
+    // @Range: 0.8 2.0
+    // @Increment: 0.05
+    // @User: Standard
+    AP_GROUPINFO("THROW_REL_G", 47, QuadPlane, qthrow_accel_release_g, 1.15f),
+
+    // @Param: THROW_REL_T
+    // @DisplayName: Q_THROW release detection timeout
+    // @Description: Maximum time in milliseconds allowed after the launch spike is qualified for acceleration to drop below Q_THROW_REL_G. If the release is not seen in time the detector resets and waits for another throw.
+    // @Units: ms
+    // @Range: 20 1000
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("THROW_REL_T", 48, QuadPlane, qthrow_accel_release_timeout_ms, 200),
 
     // @Param: THROW_CHAN
     // @DisplayName: Q_THROW manual wing deploy channel
     // @Description: RC input channel used to manually deploy the Q_THROW wing actuator while disarmed in QTHROW mode. Set to 0 to disable. High switch position deploys, low or middle relaxes the servo to trim.
     // @Range: 0 16
     // @User: Standard
-    AP_GROUPINFO("THROW_CHAN", 46, QuadPlane, qthrow_deploy_channel, 0),
+    AP_GROUPINFO("THROW_CHAN", 49, QuadPlane, qthrow_deploy_channel, 0),
 
     AP_GROUPEND
 };

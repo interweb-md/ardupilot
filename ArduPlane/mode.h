@@ -939,7 +939,13 @@ private:
     bool switch_to_next_mode();
 
     Stage stage;
+    enum class ThrowDetectState : uint8_t {
+        Idle,
+        SpikeSeen,
+        HoldSatisfied,
+    } throw_detect_state;
     uint32_t throw_accel_start_ms;
+    uint32_t throw_release_start_ms;
     uint32_t deploy_start_ms;
     uint32_t upright_start_ms;
     bool next_mode_attempted;
