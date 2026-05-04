@@ -927,11 +927,13 @@ private:
         Disarmed,
         WaitingForThrow,
         DeployingWing,
-        VerticalRecover,
+        Uprighting,
+        HeightStabilize,
     };
 
     bool throw_detected();
     bool throw_attitude_good() const;
+    bool throw_height_good() const;
     bool wing_deploy_servo_available() const;
     bool manual_wing_deploy_requested() const;
     void deploy_wing();
@@ -948,6 +950,8 @@ private:
     uint32_t throw_release_start_ms;
     uint32_t deploy_start_ms;
     uint32_t upright_start_ms;
+    float deploy_height_m;
+    float target_height_m;
     bool next_mode_attempted;
 };
 

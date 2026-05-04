@@ -6,9 +6,8 @@
 namespace {
 
 constexpr float THROW_ATTITUDE_GOOD_COS = 0.866f;
-constexpr float THROW_STABILIZE_THROTTLE = 0.5f;
+constexpr float THROW_UPRIGHT_THROTTLE = 1.0f;
 constexpr uint32_t THROW_WING_DEPLOY_DELAY_MS = 200;
-constexpr uint32_t THROW_ATTITUDE_HOLD_MS = 500;
 
 }
 
@@ -29,6 +28,8 @@ bool ModeQThrow::_enter()
     throw_release_start_ms = 0;
     deploy_start_ms = 0;
     upright_start_ms = 0;
+    deploy_height_m = 0.0f;
+    target_height_m = 0.0f;
     next_mode_attempted = false;
     relax_wing();
 
@@ -81,6 +82,8 @@ void ModeQThrow::run()
         throw_release_start_ms = 0;
         deploy_start_ms = 0;
         upright_start_ms = 0;
+        deploy_height_m = 0.0f;
+        target_height_m = 0.0f;
         next_mode_attempted = false;
         if (manual_wing_deploy_requested()) {
             deploy_wing();
@@ -93,6 +96,8 @@ void ModeQThrow::run()
         stage = Stage::WaitingForThrow;
     } else if ((stage == Stage::WaitingForThrow) && throw_detected()) {
         gcs().send_text(MAV_SEVERITY_INFO, "QThrow: throw detected");
+        deploy_height_m = pos_control->get_pos_estimate_U_m();
+        target_height_m = deploy_height_m + quadplane.qthrow_altitude_ascend.get();
         deploy_wing();
         deploy_start_ms = now;
         upright_start_ms = 0;
@@ -101,19 +106,19 @@ void ModeQThrow::run()
                ((now - deploy_start_ms) >= THROW_WING_DEPLOY_DELAY_MS)) {
         gcs().send_text(MAV_SEVERITY_INFO, "QThrow: motors enabled");
         relax_wing();
-        upright_start_ms = 0;
-        stage = Stage::VerticalRecover;
-    } else if (stage == Stage::VerticalRecover) {
+        stage = Stage::Uprighting;
+    } else if (stage == Stage::Uprighting) {
         if (throw_attitude_good()) {
-            if (upright_start_ms == 0) {
-                upright_start_ms = now;
-            } else if (((now - upright_start_ms) >= THROW_ATTITUDE_HOLD_MS) && !next_mode_attempted) {
-                gcs().send_text(MAV_SEVERITY_INFO, "QThrow: launch stabilized");
-                next_mode_attempted = true;
-                IGNORE_RETURN(switch_to_next_mode());
-            }
-        } else {
-            upright_start_ms = 0;
+            gcs().send_text(MAV_SEVERITY_INFO, "QThrow: uprighted - controlling height");
+            pos_control->D_init_controller_no_descent();
+            pos_control->set_pos_desired_U_m(target_height_m);
+            stage = Stage::HeightStabilize;
+        }
+    } else if (stage == Stage::HeightStabilize) {
+        if (throw_height_good() && !next_mode_attempted) {
+            gcs().send_text(MAV_SEVERITY_INFO, "QThrow: height achieved - switching next mode");
+            next_mode_attempted = true;
+            IGNORE_RETURN(switch_to_next_mode());
         }
     }
 
@@ -126,10 +131,17 @@ void ModeQThrow::run()
         quadplane.relax_attitude_control();
         break;
 
-    case Stage::VerticalRecover:
-        quadplane.hold_stabilize(THROW_STABILIZE_THROTTLE);
-        plane.stabilize_roll();
-        plane.stabilize_pitch();
+    case Stage::Uprighting:
+        quadplane.set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+        attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw_rad(0.0f, 0.0f, 0.0f);
+        attitude_control->set_throttle_out(THROW_UPRIGHT_THROTTLE, false, 0.0f);
+        output_rudder_and_steering(0.0f);
+        break;
+
+    case Stage::HeightStabilize:
+        quadplane.set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+        attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw_rad(0.0f, 0.0f, 0.0f);
+        pos_control->D_update_controller();
         output_rudder_and_steering(0.0f);
         break;
     }
@@ -190,6 +202,11 @@ bool ModeQThrow::throw_attitude_good() const
 {
     const Matrix3f &rot_mat = ahrs.get_rotation_body_to_ned();
     return rot_mat.c.z > THROW_ATTITUDE_GOOD_COS;
+}
+
+bool ModeQThrow::throw_height_good() const
+{
+    return fabsf(pos_control->get_pos_error_D_m()) < 0.5f;
 }
 
 bool ModeQThrow::wing_deploy_servo_available() const
