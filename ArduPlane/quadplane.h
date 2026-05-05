@@ -409,6 +409,9 @@ private:
     // RC channel used as a manual wing deploy switch in Q_THROW while disarmed
     AP_Int8 qthrow_deploy_channel;
 
+    // wing deploy delay before enabling motors in Q_THROW
+    AP_Int16 qthrow_deploy_delay_ms;
+
     // height gain target above deploy point for Q_THROW before handing off
     AP_Float qthrow_altitude_ascend;
 

@@ -581,7 +581,7 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
 
     // @Param: THROW_MIN_ALT
     // @DisplayName: Q_THROW minimum detection altitude
-    // @Description: Minimum altitude above home in meters required before Q_THROW can trigger uprighting and motor spool-up. Set to 0 to disable this altitude gate.
+    // @Description: Minimum altitude gain in meters above the armed position required before Q_THROW will confirm a throw. Set to 0 to disable this altitude gate.
     // @Units: m
     // @Range: 0 50
     // @Increment: 0.1
@@ -631,6 +631,15 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
     // @User: Standard
     AP_GROUPINFO("THROW_CHAN", 49, QuadPlane, qthrow_deploy_channel, 0),
 
+    // @Param: THROW_DLY
+    // @DisplayName: Q_THROW wing deploy delay
+    // @Description: Time in milliseconds to wait after commanding the wing deploy actuator before enabling VTOL motors in Q_THROW.
+    // @Units: ms
+    // @Range: 0 2000
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("THROW_DLY", 50, QuadPlane, qthrow_deploy_delay_ms, 200),
+
     // @Param: THROW_ALT_ASC
     // @DisplayName: Q_THROW height target above deploy point
     // @Description: Height in meters above the deployment point that Q_THROW will climb to after uprighting and before attempting the next mode.
@@ -638,7 +647,7 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
     // @Range: 0 20
     // @Increment: 0.1
     // @User: Standard
-    AP_GROUPINFO("THROW_ALT_ASC", 50, QuadPlane, qthrow_altitude_ascend, 3.0f),
+    AP_GROUPINFO("THROW_ALT_ASC", 51, QuadPlane, qthrow_altitude_ascend, 3.0f),
 
     AP_GROUPEND
 };

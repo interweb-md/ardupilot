@@ -6,8 +6,7 @@
 namespace {
 
 constexpr float THROW_ATTITUDE_GOOD_COS = 0.866f;
-constexpr float THROW_UPRIGHT_THROTTLE = 1.0f;
-constexpr uint32_t THROW_WING_DEPLOY_DELAY_MS = 200;
+constexpr float THROW_UPRIGHT_THROTTLE = 0.5f;
 
 }
 
@@ -28,8 +27,10 @@ bool ModeQThrow::_enter()
     throw_release_start_ms = 0;
     deploy_start_ms = 0;
     upright_start_ms = 0;
+    armed_height_m = 0.0f;
     deploy_height_m = 0.0f;
     target_height_m = 0.0f;
+    throw_min_alt_reached = false;
     next_mode_attempted = false;
     relax_wing();
 
@@ -82,8 +83,10 @@ void ModeQThrow::run()
         throw_release_start_ms = 0;
         deploy_start_ms = 0;
         upright_start_ms = 0;
+        armed_height_m = 0.0f;
         deploy_height_m = 0.0f;
         target_height_m = 0.0f;
+        throw_min_alt_reached = false;
         next_mode_attempted = false;
         if (manual_wing_deploy_requested()) {
             deploy_wing();
@@ -92,33 +95,43 @@ void ModeQThrow::run()
         }
     } else if (stage == Stage::Disarmed) {
         gcs().send_text(MAV_SEVERITY_INFO, "QThrow: waiting for throw");
+        armed_height_m = pos_control->get_pos_estimate_U_m();
+        throw_min_alt_reached = is_zero(quadplane.qthrow_min_alt.get());
         relax_wing();
         stage = Stage::WaitingForThrow;
-    } else if ((stage == Stage::WaitingForThrow) && throw_detected()) {
-        gcs().send_text(MAV_SEVERITY_INFO, "QThrow: throw detected");
-        deploy_height_m = pos_control->get_pos_estimate_U_m();
-        target_height_m = deploy_height_m + quadplane.qthrow_altitude_ascend.get();
-        deploy_wing();
-        deploy_start_ms = now;
-        upright_start_ms = 0;
-        stage = Stage::DeployingWing;
-    } else if ((stage == Stage::DeployingWing) &&
-               ((now - deploy_start_ms) >= THROW_WING_DEPLOY_DELAY_MS)) {
-        gcs().send_text(MAV_SEVERITY_INFO, "QThrow: motors enabled");
-        relax_wing();
-        stage = Stage::Uprighting;
-    } else if (stage == Stage::Uprighting) {
-        if (throw_attitude_good()) {
-            gcs().send_text(MAV_SEVERITY_INFO, "QThrow: uprighted - controlling height");
-            pos_control->D_init_controller_no_descent();
-            pos_control->set_pos_desired_U_m(target_height_m);
-            stage = Stage::HeightStabilize;
+    } else {
+        const float rel_alt_m = pos_control->get_pos_estimate_U_m() - armed_height_m;
+        if (!throw_min_alt_reached && (rel_alt_m >= quadplane.qthrow_min_alt.get())) {
+            throw_min_alt_reached = true;
+            gcs().send_text(MAV_SEVERITY_INFO, "QThrow: MIN_HEIGHT reached.");
         }
-    } else if (stage == Stage::HeightStabilize) {
-        if (throw_height_good() && !next_mode_attempted) {
-            gcs().send_text(MAV_SEVERITY_INFO, "QThrow: height achieved - switching next mode");
-            next_mode_attempted = true;
-            IGNORE_RETURN(switch_to_next_mode());
+
+        if ((stage == Stage::WaitingForThrow) && throw_detected()) {
+            gcs().send_text(MAV_SEVERITY_INFO, "QThrow: throw detected");
+            deploy_height_m = pos_control->get_pos_estimate_U_m();
+            target_height_m = deploy_height_m + quadplane.qthrow_altitude_ascend.get();
+            deploy_wing();
+            deploy_start_ms = now;
+            upright_start_ms = 0;
+            stage = Stage::DeployingWing;
+        } else if ((stage == Stage::DeployingWing) &&
+                   ((now - deploy_start_ms) >= (uint32_t)MAX<int16_t>(0, quadplane.qthrow_deploy_delay_ms.get()))) {
+            gcs().send_text(MAV_SEVERITY_INFO, "QThrow: motors enabled");
+            relax_wing();
+            stage = Stage::Uprighting;
+        } else if (stage == Stage::Uprighting) {
+            if (throw_attitude_good()) {
+                gcs().send_text(MAV_SEVERITY_INFO, "QThrow: uprighted - controlling height");
+                pos_control->D_init_controller_no_descent();
+                pos_control->set_pos_desired_U_m(target_height_m);
+                stage = Stage::HeightStabilize;
+            }
+        } else if (stage == Stage::HeightStabilize) {
+            if (throw_height_good() && !next_mode_attempted) {
+                gcs().send_text(MAV_SEVERITY_INFO, "QThrow: height achieved - switching next mode");
+                next_mode_attempted = true;
+                IGNORE_RETURN(switch_to_next_mode());
+            }
         }
     }
 
@@ -151,7 +164,7 @@ bool ModeQThrow::throw_detected()
 {
     const uint32_t now = AP_HAL::millis();
     const float accel_threshold_mss = MAX(1.1f, quadplane.qthrow_accel_trigger.get()) * GRAVITY_MSS;
-    const float release_threshold_mss = constrain_float(quadplane.qthrow_accel_release_g.get(), 0.8f, 2.0f) * GRAVITY_MSS;
+    const float release_threshold_mss = quadplane.qthrow_accel_release_g.get() * GRAVITY_MSS;
     const uint32_t hold_ms = MAX<int16_t>(0, quadplane.qthrow_accel_hold_ms.get());
     const uint32_t release_timeout_ms = MAX<int16_t>(20, quadplane.qthrow_accel_release_timeout_ms.get());
     const float accel_mss = plane.ins.get_accel().length();
@@ -178,7 +191,7 @@ bool ModeQThrow::throw_detected()
         return false;
 
     case ThrowDetectState::HoldSatisfied:
-        if (accel_mss <= release_threshold_mss) {
+        if ((accel_mss <= release_threshold_mss) && throw_min_alt_reached) {
             throw_detect_state = ThrowDetectState::Idle;
             throw_accel_start_ms = 0;
             throw_release_start_ms = 0;
