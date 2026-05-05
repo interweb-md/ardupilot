@@ -27,14 +27,23 @@ bool ModeQThrow::_enter()
     throw_release_start_ms = 0;
     deploy_start_ms = 0;
     upright_start_ms = 0;
+    last_log_ms = 0;
     armed_height_m = 0.0f;
     deploy_height_m = 0.0f;
     target_height_m = 0.0f;
     throw_min_alt_reached = false;
     next_mode_attempted = false;
+    prev_stage = stage;
+    prev_throw_detect_state = throw_detect_state;
+    AP_Notify::flags.waiting_for_throw = false;
     relax_wing();
 
     return true;
+}
+
+void ModeQThrow::_exit()
+{
+    AP_Notify::flags.waiting_for_throw = false;
 }
 
 bool ModeQThrow::_pre_arm_checks(size_t buflen, char *buffer) const
@@ -88,6 +97,7 @@ void ModeQThrow::run()
         target_height_m = 0.0f;
         throw_min_alt_reached = false;
         next_mode_attempted = false;
+        AP_Notify::flags.waiting_for_throw = false;
         if (manual_wing_deploy_requested()) {
             deploy_wing();
         } else {
@@ -113,6 +123,7 @@ void ModeQThrow::run()
             deploy_wing();
             deploy_start_ms = now;
             upright_start_ms = 0;
+            AP_Notify::flags.waiting_for_throw = false;
             stage = Stage::DeployingWing;
         } else if ((stage == Stage::DeployingWing) &&
                    ((now - deploy_start_ms) >= (uint32_t)MAX<int16_t>(0, quadplane.qthrow_deploy_delay_ms.get()))) {
@@ -142,6 +153,7 @@ void ModeQThrow::run()
         quadplane.set_desired_spool_state(AP_Motors::DesiredSpoolState::SHUT_DOWN);
         attitude_control->set_throttle_out(0.0f, true, 0.0f);
         quadplane.relax_attitude_control();
+        AP_Notify::flags.waiting_for_throw = (stage == Stage::WaitingForThrow);
         break;
 
     case Stage::Uprighting:
@@ -149,6 +161,7 @@ void ModeQThrow::run()
         attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw_rad(0.0f, 0.0f, 0.0f);
         attitude_control->set_throttle_out(THROW_UPRIGHT_THROTTLE, false, 0.0f);
         output_rudder_and_steering(0.0f);
+        AP_Notify::flags.waiting_for_throw = false;
         break;
 
     case Stage::HeightStabilize:
@@ -156,8 +169,60 @@ void ModeQThrow::run()
         attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw_rad(0.0f, 0.0f, 0.0f);
         pos_control->D_update_controller();
         output_rudder_and_steering(0.0f);
+        AP_Notify::flags.waiting_for_throw = false;
         break;
     }
+
+#if HAL_LOGGING_ENABLED
+    // log at 10Hz or if stage/detector state changes
+    if ((stage != prev_stage) ||
+        (throw_detect_state != prev_throw_detect_state) ||
+        ((now - last_log_ms) > 100U)) {
+        prev_stage = stage;
+        prev_throw_detect_state = throw_detect_state;
+        last_log_ms = now;
+
+        const float accel_mss = plane.ins.get_accel().length();
+        const float rel_alt_m = pos_control->get_pos_estimate_U_m() - armed_height_m;
+        const uint32_t spike_age_ms = (throw_accel_start_ms == 0) ? 0 : (now - throw_accel_start_ms);
+        const uint32_t release_age_ms = (throw_release_start_ms == 0) ? 0 : (now - throw_release_start_ms);
+        const bool throw_detect = (stage > Stage::WaitingForThrow);
+        const bool attitude_ok = (stage > Stage::Uprighting) || throw_attitude_good();
+        const bool height_ok = (stage > Stage::HeightStabilize) || throw_height_good();
+
+// @LoggerMessage: QTHR
+// @Description: Q_THROW mode messages
+// @Field: TimeUS: Time since system startup
+// @Field: Stage: Current stage of Q_THROW mode
+// @Field: DState: Current throw detector state
+// @Field: Acc: Total acceleration magnitude
+// @Field: SpikeMS: Milliseconds since spike detection started
+// @Field: RelMS: Milliseconds since release-detect window started
+// @Field: RelAlt: Altitude gain since arming
+// @Field: MinAlt: True if the minimum altitude gate has been reached
+// @Field: Throw: True if throw has been detected and launch has progressed beyond detection
+// @Field: AttOk: True if the aircraft is upright enough
+// @Field: HgtOk: True if the target height has been reached
+
+        AP::logger().WriteStreaming(
+            "QTHR",
+            "TimeUS,Stage,DState,Acc,SpikeMS,RelMS,RelAlt,MinAlt,Throw,AttOk,HgtOk",
+            "s-n--m-----",
+            "F-00-0-----",
+            "QBBfIIfbbbb",
+            AP_HAL::micros64(),
+            (uint8_t)stage,
+            (uint8_t)throw_detect_state,
+            (double)accel_mss,
+            spike_age_ms,
+            release_age_ms,
+            (double)rel_alt_m,
+            throw_min_alt_reached,
+            throw_detect,
+            attitude_ok,
+            height_ok);
+    }
+#endif
 }
 
 bool ModeQThrow::throw_detected()
