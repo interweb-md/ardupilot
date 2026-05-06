@@ -607,29 +607,20 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
     AP_GROUPINFO("THROW_HOLD", 46, QuadPlane, qthrow_accel_hold_ms, 20),
 
     // @Param: THROW_REL_G
-    // @DisplayName: Q_THROW release acceleration threshold
-    // @Description: Total accelerometer threshold in g used to confirm that the aircraft has left the hand after the launch spike. Throw detection completes when acceleration drops below this value after meeting the spike and hold conditions.
+    // @DisplayName: Q_THROW release deceleration delta
+    // @Description: Acceleration drop in g required after the maximum detected launch spike before Q_THROW confirms the aircraft has left the hand. Throw detection completes when total acceleration falls below the peak launch acceleration minus this delta after meeting the spike and hold conditions.
     // @Units: g
-    // @Range: 0.8 2.0
+    // @Range: 0.1 20.0
     // @Increment: 0.05
     // @User: Standard
     AP_GROUPINFO("THROW_REL_G", 47, QuadPlane, qthrow_accel_release_g, 1.15f),
-
-    // @Param: THROW_REL_T
-    // @DisplayName: Q_THROW release detection timeout
-    // @Description: Maximum time in milliseconds allowed after the launch spike is qualified for acceleration to drop below Q_THROW_REL_G. If the release is not seen in time the detector resets and waits for another throw.
-    // @Units: ms
-    // @Range: 20 1000
-    // @Increment: 1
-    // @User: Standard
-    AP_GROUPINFO("THROW_REL_T", 48, QuadPlane, qthrow_accel_release_timeout_ms, 200),
 
     // @Param: THROW_CHAN
     // @DisplayName: Q_THROW manual wing deploy channel
     // @Description: RC input channel used to manually deploy the Q_THROW wing actuator while disarmed in QTHROW mode. Set to 0 to disable. High switch position deploys, low or middle relaxes the servo to trim.
     // @Range: 0 16
     // @User: Standard
-    AP_GROUPINFO("THROW_CHAN", 49, QuadPlane, qthrow_deploy_channel, 0),
+    AP_GROUPINFO("THROW_CHAN", 48, QuadPlane, qthrow_deploy_channel, 0),
 
     // @Param: THROW_DLY
     // @DisplayName: Q_THROW wing deploy delay
@@ -638,7 +629,7 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
     // @Range: 0 2000
     // @Increment: 1
     // @User: Standard
-    AP_GROUPINFO("THROW_DLY", 50, QuadPlane, qthrow_deploy_delay_ms, 200),
+    AP_GROUPINFO("THROW_DLY", 49, QuadPlane, qthrow_deploy_delay_ms, 200),
 
     // @Param: THROW_ALT_ASC
     // @DisplayName: Q_THROW height target above deploy point
@@ -647,7 +638,7 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
     // @Range: 0 20
     // @Increment: 0.1
     // @User: Standard
-    AP_GROUPINFO("THROW_ALT_ASC", 51, QuadPlane, qthrow_altitude_ascend, 3.0f),
+    AP_GROUPINFO("THROW_ALT_ASC", 50, QuadPlane, qthrow_altitude_ascend, 3.0f),
 
     AP_GROUPEND
 };

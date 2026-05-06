@@ -403,9 +403,6 @@ private:
     // acceleration threshold in g used to confirm the aircraft has left the hand
     AP_Float qthrow_accel_release_g;
 
-    // maximum time allowed after spike detection to see the release acceleration drop
-    AP_Int16 qthrow_accel_release_timeout_ms;
-
     // RC channel used as a manual wing deploy switch in Q_THROW while disarmed
     AP_Int8 qthrow_deploy_channel;
 

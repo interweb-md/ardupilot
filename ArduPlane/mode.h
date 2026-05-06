@@ -952,10 +952,10 @@ private:
     uint32_t deploy_start_ms;
     uint32_t upright_start_ms;
     uint32_t last_log_ms;
+    float throw_peak_accel_mss;
     float armed_height_m;
     float deploy_height_m;
     float target_height_m;
-    bool throw_min_alt_reached;
     bool next_mode_attempted;
     Stage prev_stage;
     ThrowDetectState prev_throw_detect_state;

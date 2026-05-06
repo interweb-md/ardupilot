@@ -6,7 +6,7 @@
 namespace {
 
 constexpr float THROW_ATTITUDE_GOOD_COS = 0.866f;
-constexpr float THROW_UPRIGHT_THROTTLE = 0.5f;
+constexpr float THROW_UPRIGHT_THROTTLE = 1.0f;
 
 }
 
@@ -28,10 +28,10 @@ bool ModeQThrow::_enter()
     deploy_start_ms = 0;
     upright_start_ms = 0;
     last_log_ms = 0;
+    throw_peak_accel_mss = 0.0f;
     armed_height_m = 0.0f;
     deploy_height_m = 0.0f;
     target_height_m = 0.0f;
-    throw_min_alt_reached = false;
     next_mode_attempted = false;
     prev_stage = stage;
     prev_throw_detect_state = throw_detect_state;
@@ -92,10 +92,10 @@ void ModeQThrow::run()
         throw_release_start_ms = 0;
         deploy_start_ms = 0;
         upright_start_ms = 0;
+        throw_peak_accel_mss = 0.0f;
         armed_height_m = 0.0f;
         deploy_height_m = 0.0f;
         target_height_m = 0.0f;
-        throw_min_alt_reached = false;
         next_mode_attempted = false;
         AP_Notify::flags.waiting_for_throw = false;
         if (manual_wing_deploy_requested()) {
@@ -106,16 +106,9 @@ void ModeQThrow::run()
     } else if (stage == Stage::Disarmed) {
         gcs().send_text(MAV_SEVERITY_INFO, "QThrow: waiting for throw");
         armed_height_m = pos_control->get_pos_estimate_U_m();
-        throw_min_alt_reached = is_zero(quadplane.qthrow_min_alt.get());
         relax_wing();
         stage = Stage::WaitingForThrow;
     } else {
-        const float rel_alt_m = pos_control->get_pos_estimate_U_m() - armed_height_m;
-        if (!throw_min_alt_reached && (rel_alt_m >= quadplane.qthrow_min_alt.get())) {
-            throw_min_alt_reached = true;
-            gcs().send_text(MAV_SEVERITY_INFO, "QThrow: MIN_HEIGHT reached.");
-        }
-
         if ((stage == Stage::WaitingForThrow) && throw_detected()) {
             gcs().send_text(MAV_SEVERITY_INFO, "QThrow: throw detected");
             deploy_height_m = pos_control->get_pos_estimate_U_m();
@@ -157,18 +150,35 @@ void ModeQThrow::run()
         break;
 
     case Stage::Uprighting:
+        quadplane.assist.check_VTOL_recovery();
+        plane.quadplane.assign_tilt_to_fwd_thr();
+        plane.nav_roll_cd = 0;
+        plane.nav_pitch_cd = 0;
+        quadplane.transition->set_VTOL_roll_pitch_limit(plane.nav_roll_cd, plane.nav_pitch_cd);
         quadplane.set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
-        attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw_rad(0.0f, 0.0f, 0.0f);
-        attitude_control->set_throttle_out(THROW_UPRIGHT_THROTTLE, false, 0.0f);
+        quadplane.multicopter_attitude_rate_update(quadplane.get_desired_yaw_rate_cds(false));
+        attitude_control->set_throttle_out(THROW_UPRIGHT_THROTTLE, true, 0.0f);
+        plane.stabilize_roll();
+        plane.stabilize_pitch();
         output_rudder_and_steering(0.0f);
+        quadplane.assist.output_spin_recovery();
         AP_Notify::flags.waiting_for_throw = false;
         break;
 
     case Stage::HeightStabilize:
+        quadplane.assist.check_VTOL_recovery();
+        plane.quadplane.assign_tilt_to_fwd_thr();
+        plane.nav_roll_cd = 0;
+        plane.nav_pitch_cd = 0;
+        quadplane.transition->set_VTOL_roll_pitch_limit(plane.nav_roll_cd, plane.nav_pitch_cd);
         quadplane.set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
-        attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw_rad(0.0f, 0.0f, 0.0f);
+        pos_control->D_set_max_speed_accel_m(quadplane.get_pilot_velocity_z_max_dn_m(), quadplane.pilot_speed_z_max_up_ms, quadplane.pilot_accel_z_mss);
+        quadplane.multicopter_attitude_rate_update(quadplane.get_desired_yaw_rate_cds(false));
         pos_control->D_update_controller();
+        plane.stabilize_roll();
+        plane.stabilize_pitch();
         output_rudder_and_steering(0.0f);
+        quadplane.assist.output_spin_recovery();
         AP_Notify::flags.waiting_for_throw = false;
         break;
     }
@@ -186,6 +196,7 @@ void ModeQThrow::run()
         const float rel_alt_m = pos_control->get_pos_estimate_U_m() - armed_height_m;
         const uint32_t spike_age_ms = (throw_accel_start_ms == 0) ? 0 : (now - throw_accel_start_ms);
         const uint32_t release_age_ms = (throw_release_start_ms == 0) ? 0 : (now - throw_release_start_ms);
+        const bool min_alt_reached = is_zero(quadplane.qthrow_min_alt.get()) || (rel_alt_m >= quadplane.qthrow_min_alt.get());
         const bool throw_detect = (stage > Stage::WaitingForThrow);
         const bool attitude_ok = (stage > Stage::Uprighting) || throw_attitude_good();
         const bool height_ok = (stage > Stage::HeightStabilize) || throw_height_good();
@@ -217,7 +228,7 @@ void ModeQThrow::run()
             spike_age_ms,
             release_age_ms,
             (double)rel_alt_m,
-            throw_min_alt_reached,
+            min_alt_reached,
             throw_detect,
             attitude_ok,
             height_ok);
@@ -229,9 +240,10 @@ bool ModeQThrow::throw_detected()
 {
     const uint32_t now = AP_HAL::millis();
     const float accel_threshold_mss = MAX(1.1f, quadplane.qthrow_accel_trigger.get()) * GRAVITY_MSS;
-    const float release_threshold_mss = quadplane.qthrow_accel_release_g.get() * GRAVITY_MSS;
+    const float release_delta_mss = MAX(0.0f, quadplane.qthrow_accel_release_g.get()) * GRAVITY_MSS;
     const uint32_t hold_ms = MAX<int16_t>(0, quadplane.qthrow_accel_hold_ms.get());
-    const uint32_t release_timeout_ms = MAX<int16_t>(20, quadplane.qthrow_accel_release_timeout_ms.get());
+    const float rel_alt_m = pos_control->get_pos_estimate_U_m() - armed_height_m;
+    const bool min_alt_reached = is_zero(quadplane.qthrow_min_alt.get()) || (rel_alt_m >= quadplane.qthrow_min_alt.get());
     const float accel_mss = plane.ins.get_accel().length();
     const bool spike_present = accel_mss >= accel_threshold_mss;
 
@@ -240,6 +252,7 @@ bool ModeQThrow::throw_detected()
         if (spike_present) {
             throw_detect_state = ThrowDetectState::SpikeSeen;
             throw_accel_start_ms = now;
+            throw_peak_accel_mss = accel_mss;
         }
         return false;
 
@@ -247,8 +260,10 @@ bool ModeQThrow::throw_detected()
         if (!spike_present) {
             throw_detect_state = ThrowDetectState::Idle;
             throw_accel_start_ms = 0;
+            throw_peak_accel_mss = 0.0f;
             return false;
         }
+        throw_peak_accel_mss = MAX(throw_peak_accel_mss, accel_mss);
         if ((now - throw_accel_start_ms) >= hold_ms) {
             throw_detect_state = ThrowDetectState::HoldSatisfied;
             throw_release_start_ms = now;
@@ -256,16 +271,13 @@ bool ModeQThrow::throw_detected()
         return false;
 
     case ThrowDetectState::HoldSatisfied:
-        if ((accel_mss <= release_threshold_mss) && throw_min_alt_reached) {
+        throw_peak_accel_mss = MAX(throw_peak_accel_mss, accel_mss);
+        if ((accel_mss <= MAX(0.0f, throw_peak_accel_mss - release_delta_mss)) && min_alt_reached) {
             throw_detect_state = ThrowDetectState::Idle;
             throw_accel_start_ms = 0;
             throw_release_start_ms = 0;
+            throw_peak_accel_mss = 0.0f;
             return true;
-        }
-        if ((now - throw_release_start_ms) >= release_timeout_ms) {
-            throw_detect_state = ThrowDetectState::Idle;
-            throw_accel_start_ms = 0;
-            throw_release_start_ms = 0;
         }
         return false;
     }
@@ -273,6 +285,7 @@ bool ModeQThrow::throw_detected()
     throw_detect_state = ThrowDetectState::Idle;
     throw_accel_start_ms = 0;
     throw_release_start_ms = 0;
+    throw_peak_accel_mss = 0.0f;
     return false;
 }
 
