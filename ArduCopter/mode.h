@@ -1857,6 +1857,7 @@ public:
     Number mode_number() const override { return Number::THROW; }
 
     bool init(bool ignore_checks) override;
+    void exit() override;
     void run() override;
 
     bool requires_position() const override { return false; }
@@ -1901,12 +1902,22 @@ private:
         Throw_PosHold
     };
 
+    enum class ThrowDetectState : uint8_t {
+        Idle,
+        SpikeSeen,
+        HoldSatisfied
+    };
+
     ThrowModeStage stage = Throw_Disarmed;
     ThrowModeStage prev_stage = Throw_Disarmed;
+    ThrowDetectState throw_detect_state = ThrowDetectState::Idle;
+    ThrowDetectState prev_throw_detect_state = ThrowDetectState::Idle;
     uint32_t last_log_ms;
     bool nextmode_attempted;
-    uint32_t free_fall_start_ms;    // system time free fall was detected
-    float free_fall_start_vel_u_ms;     // vertical velocity when free fall was detected
+    uint32_t throw_accel_start_ms;      // system time accel spike was first detected
+    uint32_t throw_release_start_ms;    // system time hold stage was reached
+    float throw_peak_accel_mss;         // peak accel magnitude during the current throw event
+    float armed_height_m;               // altitude reference captured on arming
     uint32_t servo_trigger_start_ms;       // system time when servo trigger stage started
     bool servo_triggered;                  // flag to ensure servo is only triggered once
     bool deploy_servo;

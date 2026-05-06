@@ -542,13 +542,6 @@ const AP_Param::Info Copter::var_info[] = {
     // @User: Advanced
     GSCALAR(throw_altitude_min, "THROW_ALT_MIN", 0),
 
-    // @Param: THROW_ALT_MAX
-    // @DisplayName: Throw mode maximum altitude
-    // @Description: Maximum altitude under which Throw mode will detect a throw or a drop - 0 to disable the check
-    // @Units: m
-    // @User: Advanced
-    GSCALAR(throw_altitude_max, "THROW_ALT_MAX", 0),
-
     // @Param: THROW_ALT_DCSND
     // @DisplayName: Throw mode target altitude to descend
     // @Description: Target altitude to descend during a drop, (must be positive). This allows for rapidly clearing surrounding obstacles.
@@ -562,6 +555,33 @@ const AP_Param::Info Copter::var_info[] = {
     // @Units: m
     // @User: Advanced
     GSCALAR(throw_altitude_ascend, "THROW_ALT_ACSND", 3.0),
+
+    // @Param: THROW_ACCEL
+    // @DisplayName: Throw mode accel trigger threshold
+    // @Description: Total acceleration threshold used to detect the initial throw impulse.
+    // @Units: g
+    // @Range: 1.1 20
+    // @Increment: 0.1
+    // @User: Advanced
+    GSCALAR(throw_accel_trigger, "THROW_ACCEL", 2.0),
+
+    // @Param: THROW_HOLD
+    // @DisplayName: Throw mode accel hold time
+    // @Description: Minimum time the acceleration must remain above THROW_ACCEL before the throw detector waits for release.
+    // @Units: ms
+    // @Range: 0 1000
+    // @Increment: 1
+    // @User: Advanced
+    GSCALAR(throw_accel_hold_ms, "THROW_HOLD", 20),
+
+    // @Param: THROW_ACC_DROP
+    // @DisplayName: Throw mode acceleration drop
+    // @Description: Required reduction in total acceleration from the peak acceleration of the throw event before the throw is accepted.
+    // @Units: g
+    // @Range: 0.1 20
+    // @Increment: 0.1
+    // @User: Advanced
+    GSCALAR(throw_accel_drop_g, "THROW_ACC_DROP", 2.0),
 
 #endif
 

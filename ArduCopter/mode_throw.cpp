@@ -20,8 +20,13 @@ bool ModeThrow::init(bool ignore_checks)
     nextmode_attempted = false;
     servo_triggered = false;  // NEW
     servo_trigger_start_ms = 0;  // NEW
-    free_fall_start_ms = 0;
-    free_fall_start_vel_u_ms = 0.0f;
+    throw_detect_state = ThrowDetectState::Idle;
+    prev_throw_detect_state = ThrowDetectState::Idle;
+    throw_accel_start_ms = 0;
+    throw_release_start_ms = 0;
+    throw_peak_accel_mss = 0.0f;
+    armed_height_m = 0.0f;
+    AP_Notify::flags.waiting_for_throw = false;
 
     // initialise pos controller speed and acceleration
     pos_control->NE_set_max_speed_accel_m(wp_nav->get_default_speed_NE_ms(), BRAKE_MODE_DECEL_RATE_MSS);
@@ -47,6 +52,11 @@ bool ModeThrow::init(bool ignore_checks)
     return true;
 }
 
+void ModeThrow::exit()
+{
+    AP_Notify::flags.waiting_for_throw = false;
+}
+
 // runs the throw to start controller
 // should be called at 100hz or more
 void ModeThrow::run()
@@ -65,53 +75,23 @@ void ModeThrow::run()
         // state machine entry is always from a disarmed state
         stage = Throw_Disarmed;
         deploy_servo = false;
-        free_fall_start_ms = 0;
-        free_fall_start_vel_u_ms = 0.0f;
+        throw_detect_state = ThrowDetectState::Idle;
+        throw_accel_start_ms = 0;
+        throw_release_start_ms = 0;
+        throw_peak_accel_mss = 0.0f;
+        armed_height_m = 0.0f;
 
     } else if (stage == Throw_Disarmed && motors->armed()) {
         gcs().send_text(MAV_SEVERITY_INFO,"waiting for throw");
+        armed_height_m = pos_control->get_pos_estimate_U_m();
         stage = Throw_Detecting;
-        // Play the waiting for throw tone sequence to alert the user
-        AP_Notify::flags.waiting_for_throw = true;
 
     } else if (stage == Throw_Detecting) {
         const uint32_t now = AP_HAL::millis();
-        const bool high_speed = pos_control->get_vel_estimate_NED_ms().length_squared() > (THROW_HIGH_SPEED_MS * THROW_HIGH_SPEED_MS);
-
-        bool changing_height;
-        if (g2.throw_type == ThrowType::Drop) {
-            changing_height = pos_control->get_vel_estimate_U_ms() < -THROW_VERTICAL_SPEED_MS;
-        } else {
-            changing_height = pos_control->get_vel_estimate_U_ms() > THROW_VERTICAL_SPEED_MS;
-        }
-
-        const bool free_falling = ahrs.get_accel_ef().z > -0.25f * GRAVITY_MSS;
-        const bool no_throw_action = copter.ins.get_accel().length() < 4.0f * GRAVITY_MSS;
-
-        float altitude_above_home_m;
-        if (ahrs.home_is_set()) {
-            ahrs.get_relative_position_D_home(altitude_above_home_m);
-            altitude_above_home_m = -altitude_above_home_m;
-        } else {
-            altitude_above_home_m = pos_control->get_pos_estimate_U_m();
-        }
-
-        const bool height_within_params =
-            (g.throw_altitude_min == 0 || altitude_above_home_m > g.throw_altitude_min) &&
-            (g.throw_altitude_max == 0 || altitude_above_home_m < g.throw_altitude_max);
-
-        const bool possible_throw_detected =
-            (free_falling || high_speed) && changing_height && no_throw_action && height_within_params;
-
-        if (possible_throw_detected && ((now - free_fall_start_ms) > 500)) {
-            free_fall_start_ms = now;
-            free_fall_start_vel_u_ms = pos_control->get_vel_estimate_U_ms();
-            deploy_servo = true;
-            gcs().send_text(MAV_SEVERITY_INFO, "Throw: Servo deploy");
-        }
-
         if (throw_detected()) {
             copter.set_land_complete(false);
+            deploy_servo = true;
+            gcs().send_text(MAV_SEVERITY_INFO, "Throw: Servo deploy");
 
             if ((uint32_t) g2.throw_servo_delay_ms.get() > 0) {
                 stage = Throw_Servo;
@@ -132,7 +112,6 @@ void ModeThrow::run()
         gcs().send_text(MAV_SEVERITY_INFO,"throttle is unlimited - uprighting");
                 deploy_servo = false;
                 stage = Throw_Uprighting;
-                AP_Notify::flags.waiting_for_throw = false;
 
  
     } else if (stage == Throw_Uprighting && throw_attitude_good()) {
@@ -182,6 +161,8 @@ void ModeThrow::run()
             nextmode_attempted = true;
         }
     }
+
+    AP_Notify::flags.waiting_for_throw = motors->armed() && (stage == Throw_Detecting);
 
     // Throw State Processing
     switch (stage) {
@@ -288,16 +269,21 @@ void ModeThrow::run()
     }
 
 #if HAL_LOGGING_ENABLED
-    // log at 10hz or if stage changes
+    // log at 10hz or if stage/detector state changes
     uint32_t now = AP_HAL::millis();
-    if ((stage != prev_stage) || (now - last_log_ms) > 100) {
+    if ((stage != prev_stage) || (throw_detect_state != prev_throw_detect_state) || (now - last_log_ms) > 100) {
         prev_stage = stage;
+        prev_throw_detect_state = throw_detect_state;
         last_log_ms = now;
         const float velocity_ms = pos_control->get_vel_estimate_NED_ms().length();
         const float velocity_z_ms = pos_control->get_vel_estimate_U_ms();
         const float accel_mss = copter.ins.get_accel().length();
         const float ef_accel_z_mss = ahrs.get_accel_ef().z;
-        const bool throw_detect = (stage > Throw_Detecting) || throw_detected();
+        const float rel_alt_m = pos_control->get_pos_estimate_U_m() - armed_height_m;
+        const uint32_t spike_age_ms = (throw_accel_start_ms == 0) ? 0 : (now - throw_accel_start_ms);
+        const uint32_t release_age_ms = (throw_release_start_ms == 0) ? 0 : (now - throw_release_start_ms);
+        const bool min_alt_reached = is_zero((float)g.throw_altitude_min.get()) || (rel_alt_m >= g.throw_altitude_min.get());
+        const bool throw_detect = (stage > Throw_Detecting);
         const bool attitude_ok = (stage > Throw_Uprighting) || throw_attitude_good();
         const bool height_ok = (stage > Throw_HgtStabilise) || throw_height_good();
         const bool pos_ok = (stage > Throw_PosHold) || throw_position_good();
@@ -307,10 +293,15 @@ void ModeThrow::run()
 // @URL: https://ardupilot.org/copter/docs/throw-mode.html
 // @Field: TimeUS: Time since system startup
 // @Field: Stage: Current stage of the Throw Mode
+// @Field: DState: Current throw detector state
 // @Field: Vel: Magnitude of the velocity vector
 // @Field: VelZ: Vertical Velocity
 // @Field: Acc: Magnitude of the vector of the current acceleration
 // @Field: AccEfZ: Vertical earth frame accelerometer value
+// @Field: SpikeMS: Milliseconds since spike detection started
+// @Field: RelMS: Milliseconds since release-detect window started
+// @Field: RelAlt: Altitude gain since arming
+// @Field: MinAlt: True if the minimum altitude gate has been reached
 // @Field: Throw: True if a throw has been detected since entering this mode
 // @Field: AttOk: True if the vehicle is upright 
 // @Field: HgtOk: True if the vehicle is within 0.5 m of the demanded height
@@ -318,16 +309,21 @@ void ModeThrow::run()
 
         AP::logger().WriteStreaming(
             "THRO",
-            "TimeUS,Stage,Vel,VelZ,Acc,AccEfZ,Throw,AttOk,HgtOk,PosOk",
-            "s-nnoo----",
-            "F-0000----",
-            "QBffffbbbb",
+            "TimeUS,Stage,DState,Vel,VelZ,Acc,AccEfZ,SpikeMS,RelMS,RelAlt,MinAlt,Throw,AttOk,HgtOk,PosOk",
+            "s-nnoo--m---",
+            "F-0000--0---",
+            "QBBffffIIfbbbbb",
             AP_HAL::micros64(),
             (uint8_t)stage,
+            (uint8_t)throw_detect_state,
             (double)velocity_ms,
             (double)velocity_z_ms,
             (double)accel_mss,
             (double)ef_accel_z_mss,
+            spike_age_ms,
+            release_age_ms,
+            (double)rel_alt_m,
+            min_alt_reached,
             throw_detect,
             attitude_ok,
             height_ok,
@@ -350,14 +346,57 @@ void ModeThrow::retract_deploy_servo() const
 
 bool ModeThrow::throw_detected()
 {
-    if (!deploy_servo) {
+    const uint32_t now = AP_HAL::millis();
+    const float accel_threshold_mss = MAX(1.1f, g.throw_accel_trigger.get()) * GRAVITY_MSS;
+    const float release_delta_mss = MAX(0.0f, g.throw_accel_drop_g.get()) * GRAVITY_MSS;
+    const uint32_t hold_ms = MAX<int16_t>(0, g.throw_accel_hold_ms.get());
+    const float accel_mss = copter.ins.get_accel().length();
+    const bool spike_present = accel_mss >= accel_threshold_mss;
+
+    const float rel_alt_m = pos_control->get_pos_estimate_U_m() - armed_height_m;
+    const bool min_alt_reached = is_zero((float)g.throw_altitude_min.get()) || (rel_alt_m >= g.throw_altitude_min.get());
+
+    switch (throw_detect_state) {
+    case ThrowDetectState::Idle:
+        if (spike_present) {
+            throw_detect_state = ThrowDetectState::SpikeSeen;
+            throw_accel_start_ms = now;
+            throw_peak_accel_mss = accel_mss;
+        }
+        return false;
+
+    case ThrowDetectState::SpikeSeen:
+        if (!spike_present) {
+            throw_detect_state = ThrowDetectState::Idle;
+            throw_accel_start_ms = 0;
+            throw_release_start_ms = 0;
+            throw_peak_accel_mss = 0.0f;
+            return false;
+        }
+        throw_peak_accel_mss = MAX(throw_peak_accel_mss, accel_mss);
+        if ((now - throw_accel_start_ms) >= hold_ms) {
+            throw_detect_state = ThrowDetectState::HoldSatisfied;
+            throw_release_start_ms = now;
+        }
+        return false;
+
+    case ThrowDetectState::HoldSatisfied:
+        throw_peak_accel_mss = MAX(throw_peak_accel_mss, accel_mss);
+        if ((accel_mss <= MAX(0.0f, throw_peak_accel_mss - release_delta_mss)) && min_alt_reached) {
+            throw_detect_state = ThrowDetectState::Idle;
+            throw_accel_start_ms = 0;
+            throw_release_start_ms = 0;
+            throw_peak_accel_mss = 0.0f;
+            return true;
+        }
         return false;
     }
 
-    // Once a possible throw condition has been detected, we check for 2.5 m/s of
-    // downwards velocity change in less than 0.5 seconds to confirm.
-    return ((AP_HAL::millis() - free_fall_start_ms) < 500U) &&
-           ((pos_control->get_vel_estimate_U_ms() - free_fall_start_vel_u_ms) < -2.5f);
+    throw_detect_state = ThrowDetectState::Idle;
+    throw_accel_start_ms = 0;
+    throw_release_start_ms = 0;
+    throw_peak_accel_mss = 0.0f;
+    return false;
 }
 
 bool ModeThrow::throw_attitude_good() const

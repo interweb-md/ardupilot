@@ -450,7 +450,9 @@ public:
 #if MODE_THROW_ENABLED
     AP_Enum<ModeThrow::PreThrowMotorState>         throw_motor_start;
     AP_Int16         throw_altitude_min; // minimum altitude in m above which a throw can be detected
-    AP_Int16         throw_altitude_max; // maximum altitude in m below which a throw can be detected
+    AP_Float         throw_accel_trigger; // accel trigger threshold in g
+    AP_Int16         throw_accel_hold_ms; // duration accel must remain above threshold
+    AP_Float         throw_accel_drop_g; // required drop from the spike peak in g
 
     AP_Float         throw_altitude_descend;    // target altitude (meters) to descend during a drop, (must be positive)
     AP_Float         throw_altitude_ascend;     // target altitude (meters) to ascend during a throw upwards, (must be positive)
