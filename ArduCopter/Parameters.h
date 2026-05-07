@@ -386,6 +386,9 @@ public:
         k_param__gcs,
         k_param_throw_altitude_descend,
         k_param_throw_altitude_ascend,
+        k_param_throw_accel_trigger,
+        k_param_throw_accel_hold_ms,
+        k_param_throw_accel_drop_g,
 
         // the k_param_* space is 9-bits in size
         // 511: reserved
