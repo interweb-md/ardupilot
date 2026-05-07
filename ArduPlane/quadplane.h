@@ -391,6 +391,27 @@ private:
     // flight mode to switch to after a successful Q_THROW launch
     AP_Int8 throw_next_mode;
 
+    // minimum altitude above home before Q_THROW can trigger uprighting
+    AP_Float qthrow_min_alt;
+
+    // acceleration threshold in g used to detect the Q_THROW launch spike
+    AP_Float qthrow_accel_trigger;
+
+    // acceleration hold time in milliseconds used to qualify the launch spike
+    AP_Int16 qthrow_accel_hold_ms;
+
+    // acceleration threshold in g used to confirm the aircraft has left the hand
+    AP_Float qthrow_accel_release_g;
+
+    // RC channel used as a manual wing deploy switch in Q_THROW while disarmed
+    AP_Int8 qthrow_deploy_channel;
+
+    // wing deploy delay before enabling motors in Q_THROW
+    AP_Int16 qthrow_deploy_delay_ms;
+
+    // height gain target above deploy point for Q_THROW before handing off
+    AP_Float qthrow_altitude_ascend;
+
     // gain from forward acceleration to forward throttle
     AP_Float q_fwd_thr_gain;
 

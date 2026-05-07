@@ -579,6 +579,67 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
     // @User: Standard
     AP_GROUPINFO("THROW_NMODE", 43, QuadPlane, throw_next_mode, -1),
 
+    // @Param: THROW_MIN_ALT
+    // @DisplayName: Q_THROW minimum detection altitude
+    // @Description: Minimum altitude gain in meters above the armed position required before Q_THROW will confirm a throw. Set to 0 to disable this altitude gate.
+    // @Units: m
+    // @Range: 0 50
+    // @Increment: 0.1
+    // @User: Standard
+    AP_GROUPINFO("THROW_MIN_ALT", 44, QuadPlane, qthrow_min_alt, 3.0f),
+
+    // @Param: THROW_ACCEL
+    // @DisplayName: Q_THROW launch acceleration threshold
+    // @Description: Total accelerometer threshold in g used to detect the initial hand-throw acceleration spike in Q_THROW mode. Larger values require a firmer launch. This detection does not depend on GPS or EKF position health.
+    // @Units: g
+    // @Range: 1.1 5.0
+    // @Increment: 0.1
+    // @User: Standard
+    AP_GROUPINFO("THROW_ACCEL", 45, QuadPlane, qthrow_accel_trigger, 2.0f),
+
+    // @Param: THROW_HOLD
+    // @DisplayName: Q_THROW acceleration hold time
+    // @Description: Time in milliseconds that the Q_THROW launch acceleration spike must remain above Q_THROW_ACCEL before release detection begins.
+    // @Units: ms
+    // @Range: 0 200
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("THROW_HOLD", 46, QuadPlane, qthrow_accel_hold_ms, 20),
+
+    // @Param: THROW_REL_G
+    // @DisplayName: Q_THROW release deceleration delta
+    // @Description: Acceleration drop in g required after the maximum detected launch spike before Q_THROW confirms the aircraft has left the hand. Throw detection completes when total acceleration falls below the peak launch acceleration minus this delta after meeting the spike and hold conditions.
+    // @Units: g
+    // @Range: 0.1 20.0
+    // @Increment: 0.05
+    // @User: Standard
+    AP_GROUPINFO("THROW_REL_G", 47, QuadPlane, qthrow_accel_release_g, 1.15f),
+
+    // @Param: THROW_CHAN
+    // @DisplayName: Q_THROW manual wing deploy channel
+    // @Description: RC input channel used to manually deploy the Q_THROW wing actuator while disarmed in QTHROW mode. Set to 0 to disable. High switch position deploys, low or middle relaxes the servo to trim.
+    // @Range: 0 16
+    // @User: Standard
+    AP_GROUPINFO("THROW_CHAN", 48, QuadPlane, qthrow_deploy_channel, 0),
+
+    // @Param: THROW_DLY
+    // @DisplayName: Q_THROW wing deploy delay
+    // @Description: Time in milliseconds to wait after commanding the wing deploy actuator before enabling VTOL motors in Q_THROW.
+    // @Units: ms
+    // @Range: 0 2000
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("THROW_DLY", 49, QuadPlane, qthrow_deploy_delay_ms, 200),
+
+    // @Param: THROW_ALT_ASC
+    // @DisplayName: Q_THROW height target above deploy point
+    // @Description: Height in meters above the deployment point that Q_THROW will climb to after uprighting and before attempting the next mode.
+    // @Units: m
+    // @Range: 0 20
+    // @Increment: 0.1
+    // @User: Standard
+    AP_GROUPINFO("THROW_ALT_ASC", 50, QuadPlane, qthrow_altitude_ascend, 3.0f),
+
     AP_GROUPEND
 };
 

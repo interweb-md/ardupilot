@@ -919,24 +919,46 @@ public:
 protected:
 
     bool _enter() override;
+    void _exit() override;
     bool _pre_arm_checks(size_t buflen, char *buffer) const override;
 
 private:
 
     enum class Stage : uint8_t {
         Disarmed,
-        Detecting,
+        WaitingForThrow,
+        DeployingWing,
         Uprighting,
+        HeightStabilize,
     };
 
     bool throw_detected();
     bool throw_attitude_good() const;
+    bool throw_height_good() const;
+    bool wing_deploy_servo_available() const;
+    bool manual_wing_deploy_requested() const;
+    void deploy_wing();
+    void relax_wing();
     bool switch_to_next_mode();
 
     Stage stage;
-    uint32_t free_fall_start_ms;
-    float free_fall_start_vel_u_ms;
+    enum class ThrowDetectState : uint8_t {
+        Idle,
+        SpikeSeen,
+        HoldSatisfied,
+    } throw_detect_state;
+    uint32_t throw_accel_start_ms;
+    uint32_t throw_release_start_ms;
+    uint32_t deploy_start_ms;
+    uint32_t upright_start_ms;
+    uint32_t last_log_ms;
+    float throw_peak_accel_mss;
+    float armed_height_m;
+    float deploy_height_m;
+    float target_height_m;
     bool next_mode_attempted;
+    Stage prev_stage;
+    ThrowDetectState prev_throw_detect_state;
 };
 
 #if QAUTOTUNE_ENABLED
