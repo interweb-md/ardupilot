@@ -606,25 +606,25 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
     // @User: Standard
     AP_GROUPINFO("THROW_HOLD", 46, QuadPlane, qthrow_accel_hold_ms, 20),
 
-    // @Param: THROW_REL_G
-    // @DisplayName: Q_THROW release deceleration delta
+    // @Param: THROW_ACC_DROP
+    // @DisplayName: Q_THROW acceleration drop
     // @Description: Acceleration drop in g required after the maximum detected launch spike before Q_THROW confirms the aircraft has left the hand. Throw detection completes when total acceleration falls below the peak launch acceleration minus this delta after meeting the spike and hold conditions.
     // @Units: g
     // @Range: 0.1 20.0
     // @Increment: 0.05
     // @User: Standard
-    AP_GROUPINFO("THROW_REL_G", 47, QuadPlane, qthrow_accel_release_g, 1.15f),
+    AP_GROUPINFO("THROW_ACC_DROP", 47, QuadPlane, qthrow_accel_drop_g, 1.15f),
 
     // @Param: THROW_CHAN
     // @DisplayName: Q_THROW manual wing deploy channel
-    // @Description: RC input channel used to manually deploy the Q_THROW wing actuator while disarmed in QTHROW mode. Set to 0 to disable. High switch position deploys, low or middle relaxes the servo to trim.
+    // @Description: RC input channel used to manually deploy the Q_THROW wing actuator. Set to 0 to disable. While disarmed in QTHROW, high starts the two-stage servo sequence and holds stage 2; low or middle returns to trim. While armed and waiting for throw, high starts the launch sequence.
     // @Range: 0 16
     // @User: Standard
     AP_GROUPINFO("THROW_CHAN", 48, QuadPlane, qthrow_deploy_channel, 0),
 
     // @Param: THROW_DLY
     // @DisplayName: Q_THROW wing deploy delay
-    // @Description: Time in milliseconds to wait after commanding the wing deploy actuator before enabling VTOL motors in Q_THROW.
+    // @Description: Time in milliseconds to wait after commanding the wing deployment stage 2 PWM before enabling VTOL motors in Q_THROW. This delay is additional to Q_THROW_SRV_DLY.
     // @Units: ms
     // @Range: 0 2000
     // @Increment: 1
@@ -639,6 +639,41 @@ const AP_Param::GroupInfo QuadPlane::var_info2[] = {
     // @Increment: 0.1
     // @User: Standard
     AP_GROUPINFO("THROW_ALT_ASC", 50, QuadPlane, qthrow_altitude_ascend, 3.0f),
+
+    // @Param: THROW_UPR_THR
+    // @DisplayName: Q_THROW uprighting throttle
+    // @Description: Throttle output used during the Q_THROW uprighting stage before altitude control starts.
+    // @Range: 0 1
+    // @Increment: 0.01
+    // @User: Standard
+    AP_GROUPINFO("THROW_UPR_THR", 51, QuadPlane, qthrow_upright_throttle, 0.5f),
+
+    // @Param: THROW_PWM1
+    // @DisplayName: Q_THROW deployment stage 1 PWM
+    // @Description: Absolute PWM sent to the landing gear servo function immediately when Q_THROW deployment starts. Servo reversal is not applied.
+    // @Units: PWM
+    // @Range: 800 2200
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("THROW_PWM1", 52, QuadPlane, qthrow_deploy_pwm1, 2000),
+
+    // @Param: THROW_PWM2
+    // @DisplayName: Q_THROW deployment stage 2 PWM
+    // @Description: Absolute PWM sent to the landing gear servo function after Q_THROW_SRV_DLY and held during Q_THROW recovery. Servo reversal is not applied. Choose the actuator release or holding position as required.
+    // @Units: PWM
+    // @Range: 800 2200
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("THROW_PWM2", 53, QuadPlane, qthrow_deploy_pwm2, 1500),
+
+    // @Param: THROW_SRV_DLY
+    // @DisplayName: Q_THROW deployment servo delay
+    // @Description: Time in milliseconds between commanding Q_THROW_PWM1 and Q_THROW_PWM2. Motors remain off through both servo stages, then wait Q_THROW_DLY after stage 2 is commanded.
+    // @Units: ms
+    // @Range: 0 2000
+    // @Increment: 1
+    // @User: Standard
+    AP_GROUPINFO("THROW_SRV_DLY", 54, QuadPlane, qthrow_servo_delay_ms, 200),
 
     AP_GROUPEND
 };

@@ -6,7 +6,7 @@
 namespace {
 
 constexpr float THROW_ATTITUDE_GOOD_COS = 0.866f;
-constexpr float THROW_UPRIGHT_THROTTLE = 1.0f;
+constexpr uint32_t THROW_ATTITUDE_HOLD_MS = 200;
 
 }
 
@@ -26,6 +26,9 @@ bool ModeQThrow::_enter()
     throw_accel_start_ms = 0;
     throw_release_start_ms = 0;
     deploy_start_ms = 0;
+    wing_stage2_start_ms = 0;
+    wing_deploy_active = false;
+    wing_stage2_active = false;
     upright_start_ms = 0;
     last_log_ms = 0;
     throw_peak_accel_mss = 0.0f;
@@ -90,7 +93,6 @@ void ModeQThrow::run()
         throw_detect_state = ThrowDetectState::Idle;
         throw_accel_start_ms = 0;
         throw_release_start_ms = 0;
-        deploy_start_ms = 0;
         upright_start_ms = 0;
         throw_peak_accel_mss = 0.0f;
         armed_height_m = 0.0f;
@@ -109,26 +111,35 @@ void ModeQThrow::run()
         relax_wing();
         stage = Stage::WaitingForThrow;
     } else {
-        if ((stage == Stage::WaitingForThrow) && throw_detected()) {
+        if ((stage == Stage::WaitingForThrow) && (throw_detected() || manual_wing_deploy_requested())) {
             gcs().send_text(MAV_SEVERITY_INFO, "QThrow: throw detected");
             deploy_height_m = pos_control->get_pos_estimate_U_m();
             target_height_m = deploy_height_m + quadplane.qthrow_altitude_ascend.get();
             deploy_wing();
-            deploy_start_ms = now;
             upright_start_ms = 0;
             AP_Notify::flags.waiting_for_throw = false;
             stage = Stage::DeployingWing;
-        } else if ((stage == Stage::DeployingWing) &&
-                   ((now - deploy_start_ms) >= (uint32_t)MAX<int16_t>(0, quadplane.qthrow_deploy_delay_ms.get()))) {
-            gcs().send_text(MAV_SEVERITY_INFO, "QThrow: motors enabled");
-            relax_wing();
-            stage = Stage::Uprighting;
+        } else if (stage == Stage::DeployingWing) {
+            if (deploy_wing() &&
+                ((AP_HAL::millis() - wing_stage2_start_ms) >=
+                 (uint32_t)MAX<int16_t>(0, quadplane.qthrow_deploy_delay_ms.get()))) {
+                GCS_SEND_TEXT(MAV_SEVERITY_INFO, "QThrow: motors enabled - uprighting");
+                quadplane.transition->force_transition_complete();
+                attitude_control->reset_target_and_rate();
+                stage = Stage::Uprighting;
+            }
         } else if (stage == Stage::Uprighting) {
             if (throw_attitude_good()) {
-                gcs().send_text(MAV_SEVERITY_INFO, "QThrow: uprighted - controlling height");
-                pos_control->D_init_controller_no_descent();
-                pos_control->set_pos_desired_U_m(target_height_m);
-                stage = Stage::HeightStabilize;
+                if (upright_start_ms == 0) {
+                    upright_start_ms = now;
+                } else if ((now - upright_start_ms) >= THROW_ATTITUDE_HOLD_MS) {
+                    gcs().send_text(MAV_SEVERITY_INFO, "QThrow: uprighted - controlling height");
+                    pos_control->D_init_controller_no_descent();
+                    pos_control->set_pos_desired_U_m(target_height_m);
+                    stage = Stage::HeightStabilize;
+                }
+            } else {
+                upright_start_ms = 0;
             }
         } else if (stage == Stage::HeightStabilize) {
             if (throw_height_good() && !next_mode_attempted) {
@@ -150,35 +161,26 @@ void ModeQThrow::run()
         break;
 
     case Stage::Uprighting:
-        quadplane.assist.check_VTOL_recovery();
-        plane.quadplane.assign_tilt_to_fwd_thr();
-        plane.nav_roll_cd = 0;
-        plane.nav_pitch_cd = 0;
-        quadplane.transition->set_VTOL_roll_pitch_limit(plane.nav_roll_cd, plane.nav_pitch_cd);
-        quadplane.set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
-        quadplane.multicopter_attitude_rate_update(quadplane.get_desired_yaw_rate_cds(false));
-        attitude_control->set_throttle_out(THROW_UPRIGHT_THROTTLE, true, 0.0f);
-        plane.stabilize_roll();
-        plane.stabilize_pitch();
-        output_rudder_and_steering(0.0f);
-        quadplane.assist.output_spin_recovery();
+        deploy_wing();
+        if (quadplane.tailsitter.in_vtol_transition(now)) {
+            quadplane.transition->force_transition_complete();
+        }
+
+        set_tailsitter_hover_attitude_target();
+
         AP_Notify::flags.waiting_for_throw = false;
         break;
 
     case Stage::HeightStabilize:
-        quadplane.assist.check_VTOL_recovery();
-        plane.quadplane.assign_tilt_to_fwd_thr();
-        plane.nav_roll_cd = 0;
-        plane.nav_pitch_cd = 0;
-        quadplane.transition->set_VTOL_roll_pitch_limit(plane.nav_roll_cd, plane.nav_pitch_cd);
-        quadplane.set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+        deploy_wing();
+        if (quadplane.tailsitter.in_vtol_transition(now)) {
+            quadplane.transition->force_transition_complete();
+        }
+
+        set_tailsitter_hover_attitude_target();
         pos_control->D_set_max_speed_accel_m(quadplane.get_pilot_velocity_z_max_dn_m(), quadplane.pilot_speed_z_max_up_ms, quadplane.pilot_accel_z_mss);
-        quadplane.multicopter_attitude_rate_update(quadplane.get_desired_yaw_rate_cds(false));
         pos_control->D_update_controller();
-        plane.stabilize_roll();
-        plane.stabilize_pitch();
-        output_rudder_and_steering(0.0f);
-        quadplane.assist.output_spin_recovery();
+
         AP_Notify::flags.waiting_for_throw = false;
         break;
     }
@@ -240,7 +242,7 @@ bool ModeQThrow::throw_detected()
 {
     const uint32_t now = AP_HAL::millis();
     const float accel_threshold_mss = MAX(1.1f, quadplane.qthrow_accel_trigger.get()) * GRAVITY_MSS;
-    const float release_delta_mss = MAX(0.0f, quadplane.qthrow_accel_release_g.get()) * GRAVITY_MSS;
+    const float release_delta_mss = MAX(0.0f, quadplane.qthrow_accel_drop_g.get()) * GRAVITY_MSS;
     const uint32_t hold_ms = MAX<int16_t>(0, quadplane.qthrow_accel_hold_ms.get());
     const float rel_alt_m = pos_control->get_pos_estimate_U_m() - armed_height_m;
     const bool min_alt_reached = is_zero(quadplane.qthrow_min_alt.get()) || (rel_alt_m >= quadplane.qthrow_min_alt.get());
@@ -289,15 +291,30 @@ bool ModeQThrow::throw_detected()
     return false;
 }
 
+void ModeQThrow::set_tailsitter_hover_attitude_target()
+{
+    quadplane.set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+
+    plane.nav_roll_cd = 0;
+    plane.nav_pitch_cd = 0;
+    attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw_cd(plane.nav_roll_cd,
+                                                                     plane.nav_pitch_cd,
+                                                                     0.0f);
+
+    const float throttle = constrain_float(quadplane.qthrow_upright_throttle.get(), 0.0f, 1.0f);
+    attitude_control->set_throttle_out(throttle, false, 0.0f);
+}
+
 bool ModeQThrow::throw_attitude_good() const
 {
-    const Matrix3f &rot_mat = ahrs.get_rotation_body_to_ned();
+    // Use the tailsitter VTOL AHRS view; raw Plane AHRS would test fixed-wing level attitude.
+    const Matrix3f &rot_mat = quadplane.ahrs_view->get_rotation_body_to_ned();
     return rot_mat.c.z > THROW_ATTITUDE_GOOD_COS;
 }
 
 bool ModeQThrow::throw_height_good() const
 {
-    return fabsf(pos_control->get_pos_error_D_m()) < 0.5f;
+    return pos_control->get_pos_estimate_U_m() >= (target_height_m - 0.5f);
 }
 
 bool ModeQThrow::wing_deploy_servo_available() const
@@ -320,13 +337,34 @@ bool ModeQThrow::manual_wing_deploy_requested() const
     return chan->get_aux_switch_pos() == RC_Channel::AuxSwitchPos::HIGH;
 }
 
-void ModeQThrow::deploy_wing()
+bool ModeQThrow::deploy_wing()
 {
-    SRV_Channels::set_output_limit(SRV_Channel::k_landing_gear_control, SRV_Channel::Limit::MAX);
+    const uint32_t now = AP_HAL::millis();
+    if (!wing_deploy_active) {
+        deploy_start_ms = now;
+        wing_stage2_start_ms = 0;
+        wing_deploy_active = true;
+        wing_stage2_active = false;
+    }
+
+    if (!wing_stage2_active &&
+        ((now - deploy_start_ms) >= (uint32_t)MAX<int16_t>(0, quadplane.qthrow_servo_delay_ms.get()))) {
+        wing_stage2_active = true;
+        // Start the motor delay when stage 2 is actually commanded, even after a late loop.
+        wing_stage2_start_ms = now;
+    }
+
+    const int16_t pwm = wing_stage2_active ? quadplane.qthrow_deploy_pwm2.get() : quadplane.qthrow_deploy_pwm1.get();
+    SRV_Channels::set_output_pwm(SRV_Channel::k_landing_gear_control, constrain_int16(pwm, 800, 2200));
+    return wing_stage2_active;
 }
 
 void ModeQThrow::relax_wing()
 {
+    wing_deploy_active = false;
+    wing_stage2_active = false;
+    deploy_start_ms = 0;
+    wing_stage2_start_ms = 0;
     SRV_Channels::set_output_limit(SRV_Channel::k_landing_gear_control, SRV_Channel::Limit::TRIM);
 }
 

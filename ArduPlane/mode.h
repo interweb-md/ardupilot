@@ -937,7 +937,8 @@ private:
     bool throw_height_good() const;
     bool wing_deploy_servo_available() const;
     bool manual_wing_deploy_requested() const;
-    void deploy_wing();
+    void set_tailsitter_hover_attitude_target();
+    bool deploy_wing();
     void relax_wing();
     bool switch_to_next_mode();
 
@@ -950,6 +951,9 @@ private:
     uint32_t throw_accel_start_ms;
     uint32_t throw_release_start_ms;
     uint32_t deploy_start_ms;
+    uint32_t wing_stage2_start_ms;
+    bool wing_deploy_active;
+    bool wing_stage2_active;
     uint32_t upright_start_ms;
     uint32_t last_log_ms;
     float throw_peak_accel_mss;
